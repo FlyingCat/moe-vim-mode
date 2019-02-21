@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "rootDir": ".",
+        "lib": ["es6", "dom"],
+        "outDir": "./dist/",
+        "sourceMap": true,
+        "strictNullChecks": true,
+        "noImplicitThis": true,
+        "strictFunctionTypes": true,
+        "strictBindCallApply": true,
+        "strictPropertyInitialization": true,
+        "module": "esnext",
+        "moduleResolution": "Node",
+        "target": "es5"
+    }
+}
