@@ -225,6 +225,22 @@ const motions: MotionDict = {
     //#endregion
 
     //#region various
+    '[(': (ctx, pos, count, source) => {
+        let r = TextBracket.findOpening(ctx, pos, ['(', ')'], count);
+        return r ? r : false;
+    },
+    '[{': (ctx, pos, count, source) => {
+        let r = TextBracket.findOpening(ctx, pos, ['{', '}'], count);
+        return r ? r : false;
+    },
+    '])': (ctx, pos, count, source) => {
+        let r = TextBracket.findClosing(ctx, pos, ['(', ')'], count);
+        return r ? r : false;
+    },
+    ']}': (ctx, pos, count, source) => {
+        let r = TextBracket.findClosing(ctx, pos, ['{', '}'], count);
+        return r ? r : false;
+    },
     'H': (ctx, pos, count, source) => {
         let ranges = ctx.editor.getVisibleRanges();
 		let range = ranges[0];

@@ -5,6 +5,11 @@ import * as monaco from "monaco-editor";
 export class TextBracket {
     static findClosing(ctx: ICommandContext, position: monaco.IPosition, pair: [string, string], count: number): TextPosition | undefined {
         let pos = ctx.position.get(position);
+        if (pos.char === pair[0]) {
+            if (!pos.forward()) {
+                return undefined;
+            }
+        }
         let stack = 0;
         while (!pos.isEOF) {
             let char = pos.char;
@@ -31,6 +36,11 @@ export class TextBracket {
 
     static findOpening(ctx: ICommandContext, position: monaco.IPosition, pair: [string, string], count: number): TextPosition | undefined {
         let pos = ctx.position.get(position);
+        if (pos.char === pair[1]) {
+            if (!pos.backward()) {
+                return undefined;
+            }
+        }
         let stack = 0;
         do {
             let char = pos.char;
@@ -64,13 +74,9 @@ export class TextBracket {
     }
 
     static findInnerPair(ctx: ICommandContext, pos: monaco.IPosition, pair: [string, string], count: number) {
-        let from = TextBracket.findOpening(ctx, pos, pair, count);
-        if (!from) {
-            return false;
-        }
-        let position = TextBracket.findClosing(ctx, pos, pair, count);
-        if (from && position) {
-            return TextBracket.getInnerPariRange(from, position);
+        let result = this.findOuterPair(ctx, pos, pair, count);
+        if (result) {
+            return TextBracket.getInnerPariRange(result.from, result.position);
         }
         return false;
     }

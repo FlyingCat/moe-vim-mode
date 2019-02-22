@@ -119,10 +119,10 @@ __not supported__
 |   Status   |   Keys   |   Description   |
 |   -   |   -   |   -   |
 |       |   %   |   Find the next item in this line after or under the cursor and jump to its match   |
-|       |   [(   |   go to [count] previous unmatched '('   |
-|       |   [{   |   go to [count] previous unmatched '{'   |
-|       |   ])   |   go to [count] next unmatched ')'   |
-|       |   ]}   |   go to [count] next unmatched '}'   |
+|   ✓   |   [(   |   go to [count] previous unmatched '('   |
+|   ✓   |   [{   |   go to [count] previous unmatched '{'   |
+|   ✓   |   ])   |   go to [count] next unmatched ')'   |
+|   ✓   |   ]}   |   go to [count] next unmatched '}'   |
 |   ✓   |   H   |   To line [count] from top of window (default: first line on the window) on the first non-blank characte   |
 |   ✓   |   M   |   To Middle line of window, on the first non-blank character   |
 |   ✓   |   L   |   To line [count] from bottom of window (default: Last line on the window) on the first non-blank character   |
