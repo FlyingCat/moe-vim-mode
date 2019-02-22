@@ -18,7 +18,7 @@ module.exports = function (config) {
         ],
 
         preprocessors: {
-            'test/index.ts': ['webpack', 'sourcemap']
+            'test/index.ts': ['webpack'/*, 'sourcemap'*/]
         },
 
         webpack: {

@@ -6,7 +6,7 @@ module.exports = {
     entry: {
         demo: './demo/demo.ts',
     },
-    devtool: process.env.NODE_ENV === 'development' ? 'inline-source-map' : undefined,
+    devtool: 'inline-source-map',
     module: {
         rules: [
             {
