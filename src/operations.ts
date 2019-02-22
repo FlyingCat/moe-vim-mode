@@ -382,7 +382,7 @@ export const format: OperatorFunction = (ctx, arg) => {
     let mode = ctx.vimState.getMode();
     let lines = coveredLines(arg);
     if (mode !== 'Visual' && mode !== 'VisualLine') {
-        let range = monaco.Range.fromPositions(ctx.position.get(), ctx.position.get(lines[1], 'eol'));
+        let range = monaco.Range.fromPositions(ctx.position.get(lines[0], 1), ctx.position.get(lines[1], 'eol'));
         ctx.editor.setSelection(createRtlSelection(range));
     }
     let action = ctx.editor.getAction('editor.action.formatSelection')
