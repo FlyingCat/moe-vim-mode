@@ -142,12 +142,11 @@ function deleteLines(ctx: ICommandContext, register: number | undefined, first: 
     }
     let rangeToCopy = monaco.Range.fromPositions({lineNumber: first, column: 1}, ctx.position.get(last, 'eol'));
     registerManager.storeText(ctx.model.getValueInRange(rangeToCopy), true, register || 'delete');
-    if (first === 1 && last === lineCount) {
-        ctx.editor.setValue('');
-        return 1;
-    }
     let range: monaco.Range;
-    if (last !== lineCount) {
+    if (first === 1 && last === lineCount) {
+        range = monaco.Range.fromPositions(ctx.position.get(1, 1), ctx.position.get(last, 'eol'));
+    }
+    else if (last !== lineCount) {
         range = new monaco.Range(first, 1, last + 1, 1);
     }
     else {
