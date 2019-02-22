@@ -1,4 +1,4 @@
-import { SeqMap, createSeqMap } from "./matching/seqMap";
+import { createSeqMap, addSeqMapItem } from "./matching/seqMap";
 import * as keyUtils from "./utils/key";
 import * as P from "./matching/pattern";
 import * as helper from "./utils/helper";
@@ -10,22 +10,28 @@ import { recorder } from "./recorder";
 import { ICommandContext, ICommandArgs, createCommand, ICommand } from "./command";
 import * as monaco from "monaco-editor";
 
+const enum Source {
+    Cursor, // empty char range [cursor, cursor)
+    ByCount, // {count} chars or lines
+    ByLine, // d3d
+    Motion,
+    Visual,
+}
+
 type OperatorArgUnion = {
-    kind: 'General',
-} | {
-    kind: 'CharRange',
+    kind: 'CharRange';
     range: monaco.IRange;
 } | {
-    kind: 'LineRange',
-    range?: monaco.IRange; // original from motion or selection
+    kind: 'LineRange';
     lines: [number, number]; // [first, last]
 };
 
 type OperatorArg = OperatorArgUnion & {
-    // count?: number; // command, visual indent/outdent
-    // register?: number;
+    source: Source;
     commandArgs: ICommandArgs
 };
+
+//#region utils
 
 function linesFromRange(range: monaco.IRange): [number, number] {
     if (range.endColumn === 1 && range.startLineNumber !== range.endLineNumber) {
@@ -66,35 +72,27 @@ function coveredRange(ctx: ICommandContext, arg: OperatorArg): monaco.Range {
     }
 }
 
-function createGeneralArg(commandArgs: ICommandArgs): OperatorArg {
-    return {
-        kind: 'General',
-        commandArgs,
-    }
-}
-
-function createCharRangeArg(commandArgs: ICommandArgs, range: monaco.IRange): OperatorArg {
+function createCharRangeArg(source: Source, commandArgs: ICommandArgs, range: monaco.IRange): OperatorArg {
     return {
         kind: 'CharRange',
+        source,
         commandArgs,
         range,
     }
 }
 
-function createLineRangeArg(commandArgs: ICommandArgs, what: [number, number] | monaco.IRange): OperatorArg {
+function createLineRangeArg(source: Source, commandArgs: ICommandArgs, what: [number, number] | monaco.IRange): OperatorArg {
     let lines: [number, number];
-    let range: monaco.IRange | undefined;
     if (Array.isArray(what)) {
         lines = what;
     }
     else {
         lines = linesFromRange(what);
-        range = what;
     }
     return {
         kind: 'LineRange',
+        source,
         commandArgs,
-        range,
         lines,
     }
 }
@@ -129,6 +127,10 @@ function executeEdits(ctx: ICommandContext, edits: monaco.editor.IIdentifiedSing
     })
     ctx.editor.setSelections(selections!);
 }
+
+//#endregion
+
+//#region implements
 
 function deleteLines(ctx: ICommandContext, register: number | undefined, first: number, last: number) {
     let lineCount = ctx.model.getLineCount();
@@ -177,7 +179,7 @@ function forRepeatLineRangeDeleteAndInsert(count: number): ICommand {
     return createCommand((ctx, args) => {
         let first = ctx.position.get().lineNumber;
         let last = Math.min(ctx.model.getLineCount(), first + count - 1);
-        deleteAndInsertImpl(ctx, createLineRangeArg(args, [first, last]));
+        deleteAndInsertImpl(ctx, createLineRangeArg(Source.Visual, args, [first, last]));
     });
 }
 
@@ -186,7 +188,7 @@ function forRepeatCharRangeDeleteAndInsert(length: number): ICommand {
         let start = ctx.position.get();
         let end = start.clone().move(length);
         let range = monaco.Range.fromPositions(start, end);
-        deleteAndInsertImpl(ctx, createCharRangeArg(args, range));
+        deleteAndInsertImpl(ctx, createCharRangeArg(Source.Visual, args, range));
     });
 }
 
@@ -237,18 +239,11 @@ const deleteAndInsert: OperatorFunction = function (ctx, arg) {
 
 const replaceText = (ctx: ICommandContext, arg: OperatorArg, char: string) => {
     let ret: monaco.IPosition;
-    if (arg.kind === 'General') {
-        let start = ctx.position.get();
-        let end = ctx.position.get(start.lineNumber, start.column + (arg.commandArgs.count || 1));
-        let range = monaco.Range.fromPositions(start, end);
-        executeEdits(ctx, [{range, text: char.repeat(end.column - start.column)}], () => end.move(-1));
-    }
-    else {
-        let range = coveredRange(ctx, arg);
-        let ranges = helper.splitRangeByLineEnding(ctx.model, range);
-        let edits = ranges.map(x => ({range: x, text: char.repeat(x.endColumn - x.startColumn)}));
-        executeEdits(ctx, edits, () => range.getStartPosition());
-    }
+    let range = coveredRange(ctx, arg);
+    let ranges = helper.splitRangeByLineEnding(ctx.model, range);
+    let edits = ranges.map(x => ({range: x, text: char.repeat(x.endColumn - x.startColumn)}));
+    let pos = arg.source === Source.ByCount ? ctx.position.get(range.getEndPosition()).move(-1) : range.getStartPosition();
+    executeEdits(ctx, edits, () => pos);
 }
 
 const joinLines = (ctx: ICommandContext, arg: OperatorArg, preserveSpaces?: boolean) => {
@@ -323,16 +318,8 @@ export const upperCase: OperatorFunction = (ctx, arg) => {
 export const toggleCase: OperatorFunction = (ctx, arg) => {
     let range: monaco.Range;
     let pos: monaco.IPosition;
-    if (arg.kind === 'General') {
-        let start = ctx.position.get();
-        let end = ctx.position.get(start.lineNumber, start.column + (arg.commandArgs.count || 1));
-        range = monaco.Range.fromPositions(start, end);
-        pos = end.soft();
-    }
-    else {
-        range = coveredRange(ctx, arg);
-        pos = ctx.position.soften(range.getStartPosition());
-    }
+    range = coveredRange(ctx, arg);
+    pos = arg.source === Source.ByCount ? ctx.position.soften(range.getEndPosition()) : range.getStartPosition();
     let text = '';
     let oriText = ctx.model.getValueInRange(range);
     for (let i = 0; i < oriText.length; i++) {
@@ -431,23 +418,29 @@ const putTextAfter = (ctx: ICommandContext, arg: OperatorArg, cursorAtNext?: boo
         registerManager.storeText(ctx.model.getValueInRange(range), true, 'delete')
     }
     else if (arg.kind === 'CharRange') {
-        range = monaco.Range.lift(arg.range);
-        registerManager.storeText(ctx.model.getValueInRange(range), false, 'delete')
-        if (item.linewise) {
-            text = '\n' + text + '\n';
+        // the only exception: ignore the passed range in normal mode
+        if (arg.source === Source.Cursor) {
+            let cursor = ctx.position.get();
+            if (item.linewise) {
+                let pos = ctx.position.get(cursor.lineNumber, 'eol');
+                range = monaco.Range.fromPositions(pos, pos);
+                text = '\n' + text;
+            }
+            else {
+                let pos = ctx.position.get(cursor.lineNumber, cursor.column + 1);
+                range = monaco.Range.fromPositions(pos, pos);
+            }
+        }
+        else {
+            range = monaco.Range.lift(arg.range);
+            registerManager.storeText(ctx.model.getValueInRange(range), false, 'delete')
+            if (item.linewise) {
+                text = '\n' + text + '\n';
+            }
         }
     }
     else {
-        let cursor = ctx.position.get();
-        if (item.linewise) {
-            let pos = ctx.position.get(cursor.lineNumber, 'eol');
-            range = monaco.Range.fromPositions(pos, pos);
-            text = '\n' + text;
-        }
-        else {
-            let pos = ctx.position.get(cursor.lineNumber, cursor.column + 1);
-            range = monaco.Range.fromPositions(pos, pos);
-        }
+        throw new Error();
     }
     executeEdits(ctx, {range, text}, () => {
         let startPos = range.getStartPosition();
@@ -549,185 +542,314 @@ const yank: OperatorFunction = (ctx, arg) => {
     }
 }
 
+//#endregion
+
 type OperatorEntry = {
     action: OperatorFunction,
-    isEdit?: boolean, // true
-    shouldRecord?: boolean, // true
-    ncmd?: string | string[], // J
+    isEdit?: boolean, // default true
+    shouldRecord?: boolean, // default true
+    // ncmd?: string | string[], // J
+    ncmdCountChar?: string | string[], // {count}~
+    ncmdCountLine?: string | string[], // {count}J
+    ncmdCursor?: string | string[], // p
     nkey?: string, // d{motion}
-    nline?: string[] | string | true, // d[count]d
+    nline?: string[] | string | true, // d{count}d
+    nsynonym?: {[k: string]: MotionFunction},
     vkey?: string[] | string,
     vline?: string[] | string, // linewise arg from charwise visual
-    synonym?: {[k: string]: MotionFunction},
 };
 
 let operators: OperatorEntry[] = [
-    {action: deleteText, nkey: 'd', nline: true, vkey: ['d', 'x', '<Del>', '<BS>'], vline: ['X', 'D'], synonym: {
+    {action: deleteText, nkey: 'd', nline: true, vkey: ['d', 'x', '<Del>', '<BS>'], vline: ['X', 'D'], nsynonym: {
         'x': spMotion.right,
         '<Del>': spMotion.right,
         'X': spMotion.left,
         'D': spMotion.EOL,
     }},
-    {action: joinLines, vkey: 'J', synonym: {
-        'J': FakeNLinesMotion,
-    }},
-    {action: deleteAndInsert, shouldRecord: false, nkey: 'c', nline: true, vkey: ['c', 's'], vline: ['C', 'S', 'R'], synonym: {
+    {action: joinLines, ncmdCountLine: 'J', vkey: 'J'},
+    {action: deleteAndInsert, shouldRecord: false, nkey: 'c', nline: true, ncmdCountLine: 'S', vkey: ['c', 's'], vline: ['C', 'S', 'R'], nsynonym: {
         'C': spMotion.EOL,
         's': spMotion.right,
-        'S': FakeNLinesMotion,
     }},
-    {action: joinLinesPreserveSpaces, vkey: 'gJ', synonym: {
-        'gJ': FakeNLinesMotion,
-    }},
+    {action: joinLinesPreserveSpaces, ncmdCountLine: 'gJ', vkey: 'gJ'},
     {action: lowerCase, nkey: 'gu', nline: ['gu', 'u'], vkey: ['gu', 'u']},
     {action: upperCase, nkey: 'gU', nline: ['gU', 'U'], vkey: ['gU', 'U']},
-    {action: toggleCase, ncmd: '~', nkey: 'g~', nline: ['g~', '~'], vkey: ['g~', '~']},
+    {action: toggleCase, ncmdCountChar: '~', nkey: 'g~', nline: ['g~', '~'], vkey: ['g~', '~']},
     {action: indent, nkey: '>', vkey: '>', nline: true},
     {action: outdent, nkey: '<', vkey: '<', nline: true},
     {action: format, nkey: '=', vkey: '=', nline: true},
-    {action: yank, isEdit: false, nkey: 'y', nline: true, vkey: 'y', vline: 'Y', synonym: {
-        'Y': FakeNLinesMotion,
-    }},
-    {action: putTextAfter, ncmd: 'p', vkey: 'p'},
-    {action: putTextAfterAndCursorAtNext, ncmd: 'gp', vkey: 'gp'},
-    {action: putTextBefore, ncmd: 'P'},
-    {action: putTextBeforeAndCursorAtNext, ncmd: 'gP', vkey: 'gP'},
+    {action: yank, isEdit: false, nkey: 'y', nline: true, ncmdCountLine: 'Y', vkey: 'y', vline: 'Y'},
+    {action: putTextAfter, ncmdCursor: 'p', vkey: 'p'},
+    {action: putTextAfterAndCursorAtNext, ncmdCursor: 'gp', vkey: 'gp'},
+    {action: putTextBefore, ncmdCursor: 'P'},
+    {action: putTextBeforeAndCursorAtNext, ncmdCursor: 'gP', vkey: 'gP'},
 ];
 
-let nCmdList: {seq: number[], val: {action: OperatorFunction, isEdit: boolean, shouldRecord: boolean, acceptMotion: boolean | MotionFunction}}[] = [];
-let nLineCmdList: [P.Pattern, P.Pattern, OperatorFunction, boolean, boolean][] = [];
-let vCmdList: {seq: number[], val: {action: OperatorFunction, isEdit: boolean, shouldRecord: boolean, linewise: boolean}}[] = [];
 
-for (const entry of operators) {
-    let action = entry.action;
-    let keyNumbers: number[];
+//#region construct commands
 
-    let isEdit = entry.isEdit !== false;
-    let shouldRecord = isEdit && entry.shouldRecord !== false;
+type NormalSeqValue = {
+    command: ICommand,
+    motion?: MotionFunction,
+    matchNext?: boolean,
+}
 
-    if (entry.ncmd) {
-        let val = {action, isEdit, shouldRecord, acceptMotion: false};
-        if (typeof entry.ncmd === 'string') {
-            nCmdList.push({seq: keyUtils.parse(entry.ncmd), val});
-        }
-        else if (Array.isArray(entry.ncmd)) {
-            entry.ncmd.forEach(x => nCmdList.push({seq: keyUtils.parse(x), val}));
-        }
+let normalSeqMap = createSeqMap<number, NormalSeqValue>([]);
+let normalCmdPatterns = P.seq(normalSeqMap, (cap, val) => {
+    let value = val as NormalSeqValue;
+    cap.command = value.command;
+    cap.motion = value.motion;
+    return value.matchNext !== true;
+});
+normalCmdPatterns = P.concatList([normalCmdPatterns, P.common.linewisePart, P.alternate(motionPattern, objectSelectionPattern)]);
+
+let normalLinePatterns: P.Pattern[] = [];
+
+let visualSeqMap = createSeqMap<number, ICommand>([]);
+let visualCmdPatterns = P.seq(visualSeqMap, (cap, val) => void(cap.command = val));
+
+function each<T>(what: T | T[], callback: (x: T)=>void) {
+    if (Array.isArray(what)) {
+        what.forEach(x => callback(x));
     }
-
-    if (entry.nkey) {
-        keyNumbers = keyUtils.parse(entry.nkey);
-        nCmdList.push({seq: keyNumbers, val: {action, isEdit, shouldRecord, acceptMotion: true}});
-        let nline = entry.nline;
-        if (nline) {
-            let p = P.keyList(keyNumbers);
-            if (nline === true) {
-                nLineCmdList.push([p, p, action, isEdit, shouldRecord]);
-            }
-            else if (typeof nline === 'string') {
-                nLineCmdList.push([p, keyUtils.parseToPattern(nline), action, isEdit, shouldRecord]);
-            }
-            else {
-                nline.forEach(x => {
-                    nLineCmdList.push([p, keyUtils.parseToPattern(x), action, isEdit, shouldRecord]);
-                });
-            }
-        }
-    }
-
-    if (entry.synonym) {
-        for (let key in entry.synonym) {
-            let motion = entry.synonym[key];
-            nCmdList.push({seq: keyUtils.parse(key), val: {action, isEdit, shouldRecord, acceptMotion: motion}});
-        }
-    }
-
-    if (entry.vkey) {
-        if (typeof entry.vkey === 'string') {
-            vCmdList.push({seq: keyUtils.parse(entry.vkey), val: {action, isEdit, shouldRecord, linewise: false}});
-        }
-        else {
-            entry.vkey.forEach(x => vCmdList.push({seq: keyUtils.parse(x), val: {action, isEdit, shouldRecord, linewise: false}}));
-        }
-    }
-
-    if (entry.vline) {
-        if (typeof entry.vline === 'string') {
-            vCmdList.push({seq: keyUtils.parse(entry.vline), val: {action, isEdit, shouldRecord, linewise: true}});
-        }
-        else {
-            entry.vline.forEach(x => vCmdList.push({seq: keyUtils.parse(x), val: {action, isEdit, shouldRecord, linewise: true}}));
-        }
+    else {
+        callback(what);
     }
 }
 
-let nCmdPatt = P.seq(createSeqMap(nCmdList), (cap, val) => {
-    let item = val as {action: OperatorFunction; shouldRecord: boolean; isEdit: boolean; acceptMotion: boolean | MotionFunction};
-    let shouldRecord = item.shouldRecord;
-    cap.command = createCommand({shouldRecord, run(ctx, args) {
-        if (typeof item.acceptMotion !== 'boolean') {
-            args.motion = item.acceptMotion;
-        }
-        let arg: OperatorArg;
-        if (item.acceptMotion !== false) {
-            if (item.action === deleteAndInsert && args.motion === spMotion.word) {
+function doOperator(cmd: ICommand, fn: OperatorFunction, ctx: ICommandContext, arg: OperatorArg, cb: ()=>void): void | PromiseLike<void> {
+    return helper.doThen(fn.apply(cmd, [ctx, arg]), cb);
+}
+
+for (const entry of operators) {
+    let action = entry.action;
+    let isEdit = entry.isEdit !== false;
+    let shouldRecord = isEdit && entry.shouldRecord !== false;
+
+    if (entry.ncmdCountChar) {
+        let command = createCommand({shouldRecord, run(ctx, args) {
+            let start = ctx.position.get();
+            let end = ctx.position.get().setColumn(start.column + (args.count || 1));
+            let arg = createCharRangeArg(Source.ByCount, args, monaco.Range.fromPositions(start, end));
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        each(entry.ncmdCountChar, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+    }
+
+    if (entry.ncmdCountLine) {
+        let command = createCommand({shouldRecord, run(ctx, args) {
+            let first = ctx.position.get().lineNumber;
+            let last = Math.min(ctx.model.getLineCount(),  first + (args.count || 1) - 1);
+            let arg = createLineRangeArg(Source.ByCount, args, [first, last]);
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        each(entry.ncmdCountLine, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+    }
+
+    if (entry.ncmdCursor) {
+        let command = createCommand({shouldRecord, run(ctx, args) {
+            let range = ctx.position.get().toRange();
+            let arg = createCharRangeArg(Source.Cursor, args, range);
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        each(entry.ncmdCursor, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+    }
+
+    if (entry.nkey) {
+        let command = createCommand({shouldRecord, run(ctx, args) {
+            if (action === deleteAndInsert && args.motion === spMotion.word) {
                 args.motion = spMotion.altWord;
             }
-            else if (item.action === deleteAndInsert && args.motion === spMotion.fullWord) {
+            else if (action === deleteAndInsert && args.motion === spMotion.fullWord) {
                 args.motion = spMotion.altFullWord;
             }
             let result = applyMotion('Operator', ctx, args);
             if (!result.to) {
                 return;
             }
+            let arg: OperatorArg;
             let linewise = args.linewise !== undefined ? args.linewise : (result.linewise === true);
             if (linewise) {
-                arg = createLineRangeArg(args, [result.from.lineNumber, result.to.lineNumber]);
+                arg = createLineRangeArg(Source.Motion, args, [result.from.lineNumber, result.to.lineNumber]);
             }
             else {
                 let range = monaco.Range.fromPositions(result.from,  result.inclusive ? ctx.position.get(result.to).move(1) : result.to);
-                arg = createCharRangeArg(args, range);
+                arg = createCharRangeArg(Source.Motion, args, range);
             }
-        }
-        else {
-            arg = createGeneralArg(args);
-        }
-        if (item.isEdit) {
-            ctx.editor.pushUndoStop();
-        }
-        return doOperator(this, item.action, ctx, arg, () => {
-            if (item.isEdit) {
-                ctx.editor.pushUndoStop();
-            }
-            ctx.editor.revealPosition(ctx.position.get());
-        });
-    }});
-    return item.acceptMotion !== true;
-});
-nCmdPatt = P.concatList([nCmdPatt, P.common.linewisePart, P.alternate(motionPattern, objectSelectionPattern)]);
-
-let lineCommandForOperator = (fn: OperatorFunction, isEdit: boolean, shouldRecord: boolean): ICommand => {
-    return createCommand({shouldRecord,  run(ctx, args) {
-        let first = ctx.position.get().lineNumber;
-        let last = Math.min(ctx.model.getLineCount(),  first + (args.count || 1) - 1);
-        if (isEdit) {
-            ctx.editor.pushUndoStop();
-        }
-        let arg = createLineRangeArg(args, [first, last]);
-        return doOperator(this, fn, ctx, arg, () => {
             if (isEdit) {
                 ctx.editor.pushUndoStop();
             }
-            ctx.editor.revealPosition(ctx.position.get());
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        addSeqMapItem(normalSeqMap, keyUtils.parse(entry.nkey), { command, matchNext: true });
+    }
+
+    if (entry.nsynonym) {
+        let command = createCommand({shouldRecord, run(ctx, args) {
+            let result = applyMotion('Operator', ctx, args);
+            if (!result.to) {
+                return;
+            }
+            let arg: OperatorArg;
+            let linewise = args.linewise !== undefined ? args.linewise : (result.linewise === true);
+            if (linewise) {
+                arg = createLineRangeArg(Source.Motion, args, [result.from.lineNumber, result.to.lineNumber]);
+            }
+            else {
+                let range = monaco.Range.fromPositions(result.from,  result.inclusive ? ctx.position.get(result.to).move(1) : result.to);
+                arg = createCharRangeArg(Source.Motion, args, range);
+            }
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        for (let k in entry.nsynonym) {
+            addSeqMapItem(normalSeqMap, keyUtils.parse(k), { command, motion: entry.nsynonym[k] });
+        }
+    }
+
+    if (entry.nkey && entry.nline) {
+        if (entry.nline === true) {
+            entry.nline = entry.nkey;
+        }
+        let command = createCommand({shouldRecord,  run(ctx, args) {
+            let first = ctx.position.get().lineNumber;
+            let last = Math.min(ctx.model.getLineCount(),  first + (args.count || 1) - 1);
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            let arg = createLineRangeArg(Source.ByLine, args, [first, last]);
+            return doOperator(this, action, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+            });
+        }});
+        each(entry.nline, x => {
+            let first = keyUtils.parseToPattern(entry.nkey!);
+            let second = keyUtils.parseToPattern(x);
+            normalLinePatterns.push(P.concatList([first, P.common.countPart, second, P.setCommand(command)]));
         });
-    }});
+    }
+
+    let vcommand = (linewise: boolean) => {
+        return createCommand(function (ctx, args) {
+            let command = this;
+            let fn = action as OperatorFunction;
+            let cursor = ctx.position.get();
+            let sel = ctx.editor.getSelection();
+            if (!sel) { throw new Error(); }
+            let arg: OperatorArg;
+            if (ctx.vimState.getMode() === 'VisualLine') {
+                arg = createLineRangeArg(Source.Visual, args, [sel.startLineNumber, sel.endLineNumber]);
+            }
+            else if (linewise === true) {
+                arg = createLineRangeArg(Source.Visual, args, sel);
+            }
+            else {
+                arg = createCharRangeArg(Source.Visual, args, sel);
+            }
+            if (isEdit) {
+                ctx.editor.pushUndoStop();
+            }
+            if (fn !== deleteAndInsert) {
+                let capToRepeat = Object.assign({}, args);
+                let command: ICommand;
+                if (arg.kind === 'LineRange') {
+                    command = forRepeatLineRange(arg.lines[1] - arg.lines[0] + 1)
+                }
+                else if (arg.kind === 'CharRange') {
+                    command = forRepeatCharRange(ctx.model.getValueLengthInRange(arg.range));
+                }
+                else {
+                    throw new Error();
+                }
+                recorder.setLast(command, capToRepeat);
+            }
+            return doOperator(this, fn, ctx, arg, () => {
+                if (isEdit) {
+                    ctx.editor.pushUndoStop();
+                }
+                ctx.editor.revealPosition(ctx.position.get());
+
+                if (fn !== deleteAndInsert) {
+                    ctx.vimState.toNormal();
+                }
+
+            });
+
+            function forRepeatLineRange(count: number): ICommand {
+                return createCommand((ctx, cap) => {
+                    let first = ctx.position.get().lineNumber;
+                    let last = Math.min(ctx.model.getLineCount(), first + count - 1);
+                    return fn.apply(command, [ctx, createLineRangeArg(Source.Visual, cap, [first, last])]);
+                });
+            }
+
+            function forRepeatCharRange(length: number): ICommand {
+                return createCommand((ctx, cap) => {
+                    let start = ctx.position.get();
+                    let end = start.clone().move(length);
+                    let range = monaco.Range.fromPositions(start, end);
+                    return fn.apply(command, [ctx, createCharRangeArg(Source.Visual, cap, range)]);
+                });
+            }
+        });
+    }
+
+    if (entry.vkey) {
+        let command = vcommand(false);
+        each(entry.vkey, x => addSeqMapItem(visualSeqMap, keyUtils.parse(x), command));
+    }
+
+    if (entry.vline) {
+        let command = vcommand(true);
+        each(entry.vline, x => addSeqMapItem(visualSeqMap, keyUtils.parse(x), command));
+    }
 }
-let nLineCmdPatt = P.alternateList(nLineCmdList.map(x => P.concatList([x[0], P.common.countPart, x[1], P.setCommand(lineCommandForOperator(x[2], x[3], x[4]))])));
 
 let nRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, idx) => {
     let ch = String.fromCharCode(inputs[idx]);
-    cap.command = createCommand({shouldRecord: true, run(ctx, cap) {
-        let arg = createGeneralArg(cap);
+    cap.command = createCommand({shouldRecord: true, run(ctx, args) {
+        let start = ctx.position.get();
+        let end = ctx.position.get().setColumn(start.column + (args.count || 1));
+        let arg = createCharRangeArg(Source.ByCount, args, monaco.Range.fromPositions(start, end));
         ctx.editor.pushUndoStop();
         replaceText(ctx, arg, ch);
         ctx.editor.pushUndoStop();
@@ -735,7 +857,6 @@ let nRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, id
     }});
 }));
 
-export const normalOperatorPattern = P.alternateList([nCmdPatt, nLineCmdPatt, nRCharPatt]);
 
 let vRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, idx) => {
     let ch = String.fromCharCode(inputs[idx]);
@@ -743,7 +864,7 @@ let vRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, id
         let cursor = ctx.position.get();
         let sel = ctx.editor.getSelection();
         if (!sel) { throw new Error(); }
-        let arg = ctx.vimState.getMode() === 'VisualLine' ? createLineRangeArg(cap, sel) : createCharRangeArg(cap, sel);
+        let arg = ctx.vimState.getMode() === 'VisualLine' ? createLineRangeArg(Source.Visual, cap, sel) : createCharRangeArg(Source.Visual, cap, sel);
         ctx.editor.pushUndoStop();
         replaceText(ctx, arg, ch);
         ctx.editor.pushUndoStop();
@@ -751,72 +872,7 @@ let vRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, id
     });
 }));
 
-export const visualOperatorPattern = P.alternate(vRCharPatt, P.seq(createSeqMap(vCmdList), (cap, val) => {
-    let isEdit: boolean = val.isEdit;
-    cap.command = createCommand(function (ctx, cap) {
-        let command = this;
-        let fn = val.action as OperatorFunction;
-        let cursor = ctx.position.get();
-        let sel = ctx.editor.getSelection();
-        if (!sel) { throw new Error(); }
-        let arg: OperatorArg;
-        if (ctx.vimState.getMode() === 'VisualLine') {
-            arg = createLineRangeArg(cap, [sel.startLineNumber, sel.endLineNumber]);
-        }
-        else if (val.linewise === true) {
-            arg = createLineRangeArg(cap, sel);
-        }
-        else {
-            arg = createCharRangeArg(cap, sel);
-        }
-        if (isEdit) {
-            ctx.editor.pushUndoStop();
-        }
-        if (fn !== deleteAndInsert) {
-            let capToRepeat = Object.assign({}, cap);
-            let command: ICommand;
-            if (arg.kind === 'LineRange') {
-                command = forRepeatLineRange(arg.lines[1] - arg.lines[0] + 1)
-            }
-            else if (arg.kind === 'CharRange') {
-                command = forRepeatCharRange(ctx.model.getValueLengthInRange(arg.range));
-            }
-            else {
-                throw new Error();
-            }
-            recorder.setLast(command, capToRepeat);
-        }
-        return doOperator(this, fn, ctx, arg, () => {
-            if (isEdit) {
-                ctx.editor.pushUndoStop();
-            }
-            ctx.editor.revealPosition(ctx.position.get());
+export const normalOperatorPattern = P.alternateList([normalCmdPatterns, P.alternateList(normalLinePatterns), nRCharPatt]);
+export const visualOperatorPattern = P.alternateList([visualCmdPatterns, vRCharPatt]);
 
-            if (fn !== deleteAndInsert) {
-                ctx.vimState.toNormal();
-            }
-
-        });
-
-        function forRepeatLineRange(count: number): ICommand {
-            return createCommand((ctx, cap) => {
-                let first = ctx.position.get().lineNumber;
-                let last = Math.min(ctx.model.getLineCount(), first + count - 1);
-                return fn.apply(command, [ctx, createLineRangeArg(cap, [first, last])]);
-            });
-        }
-
-        function forRepeatCharRange(length: number): ICommand {
-            return createCommand((ctx, cap) => {
-                let start = ctx.position.get();
-                let end = start.clone().move(length);
-                let range = monaco.Range.fromPositions(start, end);
-                return fn.apply(command, [ctx, createCharRangeArg(cap, range)]);
-            });
-        }
-    });
-}));
-
-function doOperator(cmd: ICommand, fn: OperatorFunction, ctx: ICommandContext, arg: OperatorArg, cb: ()=>void): void | PromiseLike<void> {
-    return helper.doThen(fn.apply(cmd, [ctx, arg]), cb);
-}
+//#endregion
