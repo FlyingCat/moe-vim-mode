@@ -278,7 +278,12 @@ export class NormalMode extends ModeBase {
                 this.context.editor.setPosition(pos);
             }
             else {
-                this.context.vimState.toInsert();
+                if (configuration.enterInsertModeIfSelectOutsideVim) {
+                    this.context.vimState.toInsert();
+                }
+                else {
+                    this.context.vimState.toVisual();
+                }
             }
         }
     }

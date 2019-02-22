@@ -19,7 +19,7 @@ export interface IDispatcher {
      */
     getMode(): ModeName;
     /**
-     * get current mode label string, e.g. 'Visual Line'
+     * get current mode readable text, e.g. 'Visual Line'
      */
     getModeDisplayName(): string;
 }
@@ -48,10 +48,29 @@ export interface IMapper {
 }
 
 export interface IConfiguration {
+    /**
+     * starts with insert mode after vim mode initialized. default: false
+     */
     startInInsertMode: boolean;
+    /**
+     * when selection made outside vim, enters insert mode instead of visual mode. default: false
+     */
+    enterInsertModeIfSelectOutsideVim: boolean;
+    /**
+     * corresponding vim option. default: false
+     */
     ignoreCase: boolean;
+    /**
+     * corresponding vim option. default: true
+     */
     smartCase: boolean;
+    /**
+     * nmap manager
+     */
     readonly nmap: IMapper;
+    /**
+     * vmap manager
+     */
     readonly vmap: IMapper;
 }
 

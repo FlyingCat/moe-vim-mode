@@ -126,7 +126,8 @@ export class Remapping {
 class Configuration implements IConfiguration {
     // highlightSearch = false;
     // inclusiveSelect = true;
-    startInInsertMode: boolean = false;
+    startInInsertMode = false;
+    enterInsertModeIfSelectOutsideVim = false;
     ignoreCase = false;
     smartCase = true;
     nmap = new Mapper();

@@ -40,6 +40,7 @@ export interface IMapper {
 
 export interface IConfiguration {
     startInInsertMode: boolean;
+    enterInsertModeIfSelectOutsideVim: boolean;
     ignoreCase: boolean;
     smartCase: boolean;
     nmap: IMapper;

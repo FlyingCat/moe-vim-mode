@@ -54,7 +54,7 @@ class PlainInsertAction implements IRepeatInsertAction {
 
     execBeforeAction(ctx: ICommandContext) {
         if (this.beforeAction) {
-            return executeCommand(this.beforeAction.command, ctx, this.beforeAction.args);
+            return this.beforeAction.command.run(ctx, this.beforeAction.args);
         }
     }
 
@@ -96,7 +96,7 @@ class InsertRepeatedTextAction implements IRepeatInsertAction {
 
     execBeforeAction(ctx: ICommandContext) {
         if (this.beforeAction) {
-            return executeCommand(this.beforeAction.command, ctx, this.beforeAction.args);
+            return this.beforeAction.command.run(ctx, this.beforeAction.args);
         }
     }
 
@@ -158,7 +158,7 @@ class RepeatCommandAndInsertAction implements IRepeatableAction {
 
     execBeforeAction(ctx: ICommandContext) {
         if (this.beforeAction) {
-            return executeCommand(this.beforeAction.command, ctx, this.beforeAction.args);
+            return this.beforeAction.command.run(ctx, this.beforeAction.args);
         }
     }
 
