@@ -63,3 +63,51 @@ FROM({
     .next({input: 'Vj2>', text: ['        a', '            b'], cursor: [1, 9]})
     .next({input: 'Vj2<', text: ['a', '    b'], cursor: [1, 1]})
 .RUN()
+
+FROM({
+    suit: 'operator - add number',
+    text: 'a-001a'
+})
+.TEST('in normal mode')
+    .next({input: '<C-A>', text: 'a000a', cursor: [1, 4]})
+    .next({input: '10<C-A>', text: 'a010a', cursor: [1, 4]})
+    .next({input: '100<C-A>', text: 'a110a', cursor: [1, 4]})
+    .next({input: '1000<C-A>', text: 'a1110a', cursor: [1, 5]})
+.TEST('in visual mode')
+    .cursor(1, 3)
+    .next('2v')
+    .next({input: '<C-A>', text: 'a-011a', cursor: [1, 3]})
+.RUN()
+
+FROM({
+    suit: 'operator - subtract number',
+    text: 'a001a'
+})
+.TEST('in normal mode')
+    .next({input: '<C-X>', text: 'a000a', cursor: [1, 4]})
+    .next({input: '10<C-X>', text: 'a-010a', cursor: [1, 5]})
+    .next({input: '100<C-X>', text: 'a-110a', cursor: [1, 5]})
+    .next({input: '1000<C-X>', text: 'a-1110a', cursor: [1, 6]})
+.TEST('in visual mode')
+    .cursor(1, 2)
+    .next('2v')
+    .next({input: '<C-X>', text: 'a-011a', cursor: [1, 2]})
+.RUN()
+
+FROM({
+    suit: 'operator - add/subtract number sequence',
+    text: ['0.a', '0.b', '0.c']
+})
+.TEST('add')
+    .next('VG')
+    .next({input: 'g<C-A>', text: ['1.a', '2.b', '3.c']})
+.TEST('add with count')
+    .next('VG')
+    .next({input: '10g<C-A>', text: ['10.a', '20.b', '30.c']})
+.TEST('subtract')
+    .next('VG')
+    .next({input: 'g<C-X>', text: ['-1.a', '-2.b', '-3.c']})
+.TEST('subtract with count')
+    .next('VG')
+    .next({input: '10g<C-X>', text: ['-10.a', '-20.b', '-30.c']})
+.RUN()

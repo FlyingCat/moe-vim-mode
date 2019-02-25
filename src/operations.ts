@@ -332,6 +332,112 @@ export const toggleCase: OperatorFunction = (ctx, arg) => {
     executeEdits(ctx, { range, text }, () => pos);
 }
 
+function isDigit(s: string) {
+    let c = s.charCodeAt(0);
+    return c >= '0'.charCodeAt(0) && c <= '9'.charCodeAt(0);
+}
+
+function findNumberRange(ctx: ICommandContext, range: monaco.IRange) {
+    let str = ctx.model.getValueInRange(range);
+    let match = str.match(/-?\d+/);
+    if (match) {
+        let text = match[0];
+        let ln = range.startLineNumber;
+        let start = range.startColumn + match.index!;
+        let newRange = new monaco.Range(ln, start, ln, start + text.length);
+        let value = parseInt(text);
+        let length = text.length - (value < 0 ? 1 : 0);
+        return { range: newRange, value, text, length };
+    }
+}
+
+function numberToText(value: number, padLength: number) {
+    if (value >= 0) {
+        let s = value.toString();
+        let n = padLength - s.length;
+        while (n > 0) {
+            s = '0' + s;
+            n--;
+        }
+        return s;
+    }
+    else {
+        let s = Math.abs(value).toString();
+        let n = padLength - s.length;
+        while (n > 0) {
+            s = '0' + s;
+            n--;
+        }
+        return '-' + s;
+    }
+}
+
+function changeNumber(ctx: ICommandContext, arg: OperatorArg, type: 'add' | 'subtract', sequence: boolean) {
+    let count = arg.commandArgs.count || 1;
+    if (type === 'subtract') {
+        count = -count;
+    }
+    if (arg.source === Source.Cursor) {
+        let pos = ctx.position.get().shouldWrap(false);
+        if (isDigit(pos.char)) {
+            let foundMinus = false;
+            pos.backIf(x => !foundMinus && (isDigit(x.char) || (x.char === '-' && (foundMinus = true))));
+        }
+        let r = findNumberRange(ctx, monaco.Range.fromPositions(pos, pos.clone().setColumn('eol')));
+        if (!r) {
+            ctx.vimState.beep();
+            return;
+        }
+        let { range, value, length } = r;
+        let text = numberToText(value + count, length);
+        let cursorPos = {lineNumber: range.startLineNumber, column: range.startColumn + text.length - 1};
+        executeEdits(ctx, {range, text}, () => cursorPos);
+    }
+    else if (arg.source === Source.Visual) {
+        let sel = coveredRange(ctx, arg);
+        let cursorPos = sel.getStartPosition();
+        let edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+        let n = 1;
+        helper.splitRangeByLineEnding(ctx.model, sel).forEach(rng => {
+            let r = findNumberRange(ctx, rng);
+            if (r) {
+                let { range, value, length } = r;
+                let newValue = value + (sequence ? n++ : 1) * count;
+                let text = numberToText(newValue, length);
+                edits.push({ range, text });
+            }
+        });
+        if (edits.length > 0) {
+            executeEdits(ctx, edits, () => cursorPos);
+        }
+    }
+    else {
+        throw new Error();
+    }
+}
+
+const addNumber: OperatorFunction = (ctx, arg) => {
+    changeNumber(ctx, arg, 'add', false);
+}
+
+const subtractNumber: OperatorFunction = (ctx, arg) => {
+    changeNumber(ctx, arg, 'subtract', false);
+}
+
+const addNumberBySequence: OperatorFunction = (ctx, arg) => {
+    if (arg.source !== Source.Visual) {
+        throw new Error();
+    }
+    changeNumber(ctx, arg, 'add', true);
+}
+
+const subtractNumberBySequence: OperatorFunction = (ctx, arg) => {
+    if (arg.source !== Source.Visual) {
+        throw new Error();
+    }
+    changeNumber(ctx, arg, 'subtract', true);
+}
+
 export const indent: OperatorFunction = (ctx, arg) => {
     let beforeVersionId = ctx.model.getAlternativeVersionId();
     let beforeCursor = ctx.position.get();
@@ -547,7 +653,6 @@ type OperatorEntry = {
     action: OperatorFunction,
     isEdit?: boolean, // default true
     shouldRecord?: boolean, // default true
-    // ncmd?: string | string[], // J
     ncmdCountChar?: string | string[], // {count}~
     ncmdCountLine?: string | string[], // {count}J
     ncmdCursor?: string | string[], // p
@@ -574,6 +679,10 @@ let operators: OperatorEntry[] = [
     {action: lowerCase, nkey: 'gu', nline: ['gu', 'u'], vkey: ['gu', 'u']},
     {action: upperCase, nkey: 'gU', nline: ['gU', 'U'], vkey: ['gU', 'U']},
     {action: toggleCase, ncmdCountChar: '~', nkey: 'g~', nline: ['g~', '~'], vkey: ['g~', '~']},
+    {action: addNumber, ncmdCursor: '<C-A>', vkey: '<C-A>'},
+    {action: subtractNumber, ncmdCursor: '<C-X>', vkey: '<C-X>'},
+    {action: addNumberBySequence, vkey: 'g<C-A>'},
+    {action: subtractNumberBySequence, vkey: 'g<C-X>'},
     {action: indent, nkey: '>', vkey: '>', nline: true},
     {action: outdent, nkey: '<', vkey: '<', nline: true},
     {action: format, nkey: '=', vkey: '=', nline: true},

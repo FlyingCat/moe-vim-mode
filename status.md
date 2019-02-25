@@ -222,8 +222,12 @@ __not supported__
 |   ✓   |   {Visual}u   |   Make highlighted text lowercase   |
 |   ✓   |   gu{motion}   |   Make {motion} text lowercase   |
 |   ✓   |   gugu guu   |   Make current line lowercase   |
-|       |   CTRL-A   |   Add [count] to the number or alphabetic character at or after the cursor   |
-|       |   CTRL-X   |   Subtract [count] from the number or alphabetic character at or after the cursor   |
+|   !   |   CTRL-A   |   Add [count] to the number at or after the cursor. Note: Currently only support decimal numbers   |
+|   !   |   {Visual}CTRL-A   |   Add [count] to the number in the highlighted text. Note: as above   |
+|   !   |   {Visual}g CTRL-A   |   Add [count] to the number in the highlighted text, creating a incrementing sequence. Note: as above   |
+|   !   |   CTRL-X   |   Subtract [count] from the number at or after the cursor. Note: as above   |
+|   !   |   {Visual}CTRL-X   |   Subtract [count] from the number in the highlighted text. Note: as above   |
+|   !   |   {Visual}g CTRL-X   |   Subtract [count] from the number in the highlighted text, creating a decrementing sequence. Note: as above   |
 
 
 ## shift-left-right
