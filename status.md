@@ -142,6 +142,38 @@ __not supported__
 |   ✓   |   g#   |   Like "#", but also find matches that are not a whole word   |
 
 
+## scrolling
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   CTRL-E   |   Scroll window [count] lines downwards   |
+|   ✓   |   CTRL-D   |   Scroll window [count] half pages Downwards   |
+|   ✓   |   CTRL-F   |   Scroll window [count] pages Forwards (downwards)   |
+|   ✓   |   z+   |   line [count] at top of window (default line just below the window) and put cursor at first non-blank   |
+|   ✓   |   CTRL-Y   |   Scroll window [count] lines upwards   |
+|   ✓   |   CTRl-U   |   Scroll window [count] half pages Upwards   |
+|   ✓   |   CTRL-B   |   Scroll window [count] pages Backwards (upwards)   |
+|   ✓   |   z^   |   line [count] at bottom of window (default line just above the window) and put cursor at first non-blank   |
+|   ✓   |   z<CR>   |   line [count] at top of window (default cursor line) and put cursor at first non-blank   |
+|   ✓   |   zt   |   Like "z<CR>", but leave the cursor in the same column   |
+|   ✓   |   z.   |   line [count] at center of window (default cursor line) and put cursor at first non-blank   |
+|   ✓   |   zz   |   Like "z.", but leave the cursor in the same column   |
+|   ✓   |   zt   |   line [count] at bottom of window (default cursor line) and put cursor at first non-blank   |
+|   ✓   |   zb   |   Like "z-", but leave the cursor in the same column   |
+
+
+## scrolling horizontally
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|       |   zl   |   Move the view on the text [count] characters to the right   |
+|       |   zh   |   Move the view on the text [count] characters to the left   |
+|       |   zL   |   Move the view on the text half a screenwidth to the right   |
+|       |   zH   |   Move the view on the text half a screenwidth to the left   |
+|       |   zs   |   Scroll the text horizontally to position the cursor at the start (left side) of the screen   |
+|       |   ze   |   Scroll the text horizontally to position the cursor at the end (right side) of the screen   |
+
+
 ## deleting
 
 |   Status   |   Keys   |   Description   |
