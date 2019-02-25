@@ -234,8 +234,17 @@ __not supported__
 |   ✓   |   <<   |   Decrease [count] lines one indent   |
 |   ✓   |   {Visual}\[count]<   |    Decrease highlighted lines lines [count] indent   |
 |   ✓   |    >{motion}   |   Increase {motion} lines one indent   |
-|   ✓   |    >>   |   Increase {motion} lines one indent   |
-|   ✓   |   {Visual}\[count]>   |   Increase {motion} lines one indent    |
+|   ✓   |    >>   |   Increase [count] lines one indent   |
+|   ✓   |   {Visual}\[count]>   |   Increase highlighted lines lines [count] indent    |
+
+
+## complex-change
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓ ★   |   ={motion}   |   Filter {motion} lines. Note: base on "Format Selection" action    |
+|   ✓ ★   |   ==   |   Filter [count] lines like with ={motion}. Note: as above    |
+|   ✓ ★   |   {Visual}=   |   Filter the highlighted lines like with ={motion}. Note: as above    |
 
 
 ## copy-move
@@ -282,5 +291,5 @@ __not supported__
 |   Status   |   Keys   |   Description   |
 |   -   |   -   |   -   |
 |   ✓ ★   |   u   |   Undo [count] changes. Note: base on native undo-redo, may not work as expected   |
-|   ✓ ★   |   CTRL-R   |   Redo [count] changes which were undone. Note: As abouve   |
+|   ✓ ★   |   CTRL-R   |   Redo [count] changes which were undone. Note: As above   |
 |   !   |   .   |   Repeat last change, with count replaced with [count]  |
