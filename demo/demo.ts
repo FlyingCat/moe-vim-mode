@@ -140,12 +140,14 @@ class App implements moeVim.IEventSink {
     }
 
     didChangeActiveEditor(editor: monaco.editor.IStandaloneCodeEditor) {
-        let instance = moeVim.get(editor)
-        if (!instance) {
-            throw new Error('something goes wrong.')
+        if (this.enabled) {
+            let instance = moeVim.get(editor)
+            if (!instance) {
+                throw new Error('something goes wrong.')
+            }
+            this.mode = instance.getModeDisplayName();
+            this.text = '';
         }
-        this.mode = instance.getModeDisplayName();
-        this.text = '';
     }
 
     config() {
