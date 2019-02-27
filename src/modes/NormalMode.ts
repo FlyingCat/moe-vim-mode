@@ -13,6 +13,7 @@ import { TextSearch } from "../text/search";
 import { CommandFunction, ICommandContext, ICommandArgs, createCommand, executeCommand } from "../command";
 import * as monaco from "monaco-editor";
 import { actionsPattern } from "../actions";
+import { executeExCommand } from "../exCommand";
 
 const escKey = keyUtils.pack(KeyCode.Escape);
 
@@ -134,6 +135,14 @@ export const commands: {[k: string]: CommandFunction} = {
     '?': (ctx, mst) => {
         searchPattern(ctx, mst, 'backward', '?');
     },
+    ':': (ctx, mst) => {
+        ctx.vimState.requestExternalInput(':', () => {}).then(text => {
+            if (!text) {
+                return;
+            }
+            executeExCommand(ctx, text);
+        });
+    },
 };
 
 function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'forward' | 'backward', prefix: string) {
@@ -177,7 +186,7 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
             ctx.editor.revealPosition(pos);
         }
         else {
-            ctx.vimState.outputError('找不到模式: ' + searchString);
+            ctx.vimState.outputError('Pattern not found: ' + searchString);
         }
     });
 }

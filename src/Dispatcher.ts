@@ -10,6 +10,7 @@ import { TextPositionFactory } from "./text/position";
 import { configuration } from "./configuration";
 import { ICommandContext, ICommand, ICommandArgs } from "./command";
 import * as monaco from "monaco-editor";
+import { ExternalInputWidget } from "./utils/externalInput";
 
 export class GlobalState {
     lastCharMotion?: {
@@ -297,8 +298,20 @@ export class Dispatcher {
             return this.eventSink.onRequestExternalInput(this, prefix, textChangedCallback);
         }
         else {
-            let text = window.prompt(prefix);
-            return Promise.resolve(text);
+            return new Promise(resolve => {
+                let ev = {
+                    onChange: (s: string) => {
+                        textChangedCallback(s);
+                    },
+                    onSubmit: (s: string) => {
+                        resolve(s);
+                    },
+                    onCancel: () => {
+                        resolve(null);
+                    }
+                };
+                new ExternalInputWidget(this.editor, prefix, ev);
+            });
         }
     }
 
