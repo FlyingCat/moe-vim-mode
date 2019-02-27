@@ -43,6 +43,8 @@ export interface IConfiguration {
     enterInsertModeIfSelectOutsideVim: boolean;
     ignoreCase: boolean;
     smartCase: boolean;
+    incrementalSearch: boolean;
+    highlightSearch: boolean;
     nmap: IMapper;
     vmap: IMapper;
 }

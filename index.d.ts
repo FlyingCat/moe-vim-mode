@@ -65,6 +65,14 @@ export interface IConfiguration {
      */
     smartCase: boolean;
     /**
+     * corresponding vim option. default: true
+     */
+    incrementalSearch: boolean;
+    /**
+     * corresponding vim option. default: true
+     */
+    highlightSearch: boolean;
+    /**
      * nmap manager
      */
     readonly nmap: IMapper;

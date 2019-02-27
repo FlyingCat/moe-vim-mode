@@ -146,8 +146,74 @@ export const commands: {[k: string]: CommandFunction} = {
 };
 
 function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'forward' | 'backward', prefix: string) {
-    ctx.vimState.requestExternalInput(prefix, () => {}).then(searchString => {
+    const scrollLeft = ctx.editor.getScrollLeft();
+    const scrollTop = ctx.editor.getScrollTop();
+    let viewportChanged = false;
+    let searchModel = TextSearch.getSearchModel(ctx.editor);
+    let state = searchModel.getState();
+    function restoreEditorView(searchState = false) {
+        if (viewportChanged) {
+            ctx.editor.setScrollLeft(scrollLeft);
+            ctx.editor.setScrollTop(scrollTop);
+            viewportChanged = false;
+        }
+        if (searchState) {
+            searchModel.restoreState(state);
+        }
+    }
+    function incSearch(searchString: string) {
+        let matchCase = !configuration.ignoreCase;
+        if (searchString.startsWith('\\c')) {
+            matchCase = false;
+            searchString = searchString.substring(2);
+        }
+        else if (searchString.startsWith('\\C')) {
+            matchCase = true;
+            searchString = searchString.substring(2);
+        }
+        else if (configuration.ignoreCase && configuration.smartCase) {
+            for (let i = 0; i< searchString.length; i++) {
+                let ch = searchString.charCodeAt(i);
+                if (ch === '\\'.charCodeAt(0)) {
+                    i++;
+                }
+                else {
+                    if (ch >= 'A'.charCodeAt(0) && ch <= 'Z'.charCodeAt(0)) {
+                        matchCase = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (searchString.length === 0) {
+            return null;
+        }
+        let pattern = {searchString, wholeWord: false, isRegex: true, matchCase};
+        let start = ctx.editor.getPosition()!;
+        return TextSearch.searchNext(ctx, start, pattern, args.count, false);
+    }
+    function onTextChange(text: string) {
+        TextSearch.isInc = true;
+        if (!configuration.incrementalSearch) {
+            return;
+        }
+        if (text.length === 0) {
+            restoreEditorView();
+            searchModel.reset();
+        }
+        let r = incSearch(text);
+        if (r) {
+            ctx.editor.revealRangeInCenterIfOutsideViewport(monaco.Range.fromPositions(r, r));
+            viewportChanged = true;
+        }
+        else {
+            restoreEditorView();
+        }
+    }
+    ctx.vimState.requestExternalInput(prefix, onTextChange).then(searchString => {
+        TextSearch.isInc = false;
         if (!searchString) {
+            restoreEditorView(true);
             return;
         }
         let matchCase = !configuration.ignoreCase;
@@ -174,6 +240,7 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
             }
         }
         if (searchString.length === 0) {
+            restoreEditorView(true);
             return;
         }
         let pattern = {searchString, wholeWord: false, isRegex: true, matchCase};
@@ -186,6 +253,7 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
             ctx.editor.revealPosition(pos);
         }
         else {
+            restoreEditorView();
             ctx.vimState.outputError('Pattern not found: ' + searchString);
         }
     });

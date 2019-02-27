@@ -1,5 +1,6 @@
 import { configuration } from "./configuration";
 import { ICommandContext, executeCommand } from "./command";
+import { TextSearch } from "./text/search";
 
 type OptionUnion = {
     type: 'boolean';
@@ -28,6 +29,16 @@ const options: Option[] = [
         names: ['smartcase', 'scs'],
         getValue: () => configuration.smartCase,
         setValue: v => configuration.smartCase = v,
+    }, {
+        type: 'boolean',
+        names: ['hlsearch', 'hls'],
+        getValue: () => configuration.highlightSearch,
+        setValue: v => configuration.highlightSearch = v,
+    }, {
+        type: 'boolean',
+        names: ['incsearch', 'is'],
+        getValue: () => configuration.incrementalSearch,
+        setValue: v => configuration.incrementalSearch = v,
     }
 ];
 
@@ -134,6 +145,11 @@ const exCommands: IExCommand[] = [
             else {
                 configuration.vmap.addString(cap[2], cap[3]);
             }
+        }
+    }, {
+        matcher: /^nohl?\s*$/,
+        handler() {
+            TextSearch.noHighLight();
         }
     }
 ];

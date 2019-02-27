@@ -2,6 +2,7 @@ import { ModeName, IConfiguration, IMapper } from "./types";
 import { SeqMap, createSeqMap, addSeqMapItem, searchSeqMap } from "./matching/seqMap";
 import { parse } from "./utils/key";
 import * as monaco from "monaco-editor";
+import { TextSearch } from "./text/search";
 
 type Action = (editor: monaco.editor.ICodeEditor) => void | PromiseLike<void>;
 
@@ -124,14 +125,26 @@ export class Remapping {
 }
 
 class Configuration implements IConfiguration {
-    // highlightSearch = false;
     // inclusiveSelect = true;
     startInInsertMode = false;
     enterInsertModeIfSelectOutsideVim = false;
     ignoreCase = false;
     smartCase = true;
-    nmap = new Mapper();
-    vmap = new Mapper();
+    incrementalSearch = true;
+
+    private _highlightSearch = true;
+    get highlightSearch() {
+        return this._highlightSearch;
+    }
+    set highlightSearch(value: boolean) {
+        if (this._highlightSearch !== value) {
+            this._highlightSearch = value;
+            TextSearch.notifyHighlightSearchOptionChanged();
+        }
+    }
+
+    readonly nmap = new Mapper();
+    readonly vmap = new Mapper();
 }
 
 export const configuration = new Configuration();
