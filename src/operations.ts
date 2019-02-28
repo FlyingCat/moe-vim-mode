@@ -249,25 +249,24 @@ const joinLines = (ctx: ICommandContext, arg: OperatorArg, preserveSpaces?: bool
     let lines = coveredLines(arg);
     let lineCount = ctx.model.getLineCount();
     if (lines[0] === lineCount) {
+        ctx.vimState.beep();
         return;
     }
     if (lines[0] === lines[1]) {
         lines[1] = lines[1] + 1;
     }
-    let n = lines[1] - lines[0];
-    let ln = lines[0];
-    let col = 0;
     if (preserveSpaces) {
-        while (n !== 0) {
+        let edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+        let len = 0;
+        for (let ln = lines[0]; ln < lines[1]; ln++) {
             let pos = ctx.position.get(ln, 'eol');
-            if (n === 1) {
-                col = pos.column;
-            }
+            len += ctx.model.getLineLength(ln);
             let range = monaco.Range.fromPositions(pos, {lineNumber: ln + 1, column: 1});
-            ctx.editor.executeEdits('vim', [{range, text: ''}]);
-            n--;
+            edits.push({ range, text: null });
         }
-        ctx.editor.setPosition(ctx.position.get(lines[0], col).soft());
+        let lineNumber = lines[0];
+        let column = ctx.model.getLineLength(lines[1]) === 0 ? len : len + 1;
+        executeEdits(ctx, edits, () => ({lineNumber, column}));
     }
     else {
         /**
@@ -276,23 +275,35 @@ const joinLines = (ctx: ICommandContext, arg: OperatorArg, preserveSpaces?: bool
          * or the next line starts with a ')'
          * #2 delete any leading white space on the next line
          */
-        while (n !== 0) {
-            let pos = ctx.position.get(ln, '$');
-            let endWithSpace = pos.isBlank;
-            pos.setColumn('eol');
-            if (n === 1) {
-                col = pos.column;
+
+        let edits: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+        let ln = lines[0];
+        let resultingLineLength = ctx.model.getLineLength(ln);
+        let column = 1;
+        // do not insert space if empty line
+        let resultingLineEndWithSpace = ctx.position.get(ln, '$').isBlank;
+        for (ln = ln + 1; ln <= lines[1]; ln++) {
+            let pos = ctx.position.get(ln, 1).shouldWrap(false);
+            if (pos.kind === CursorKind.Whitespace) {
+                pos.stepTo(x => x.kind !== CursorKind.Whitespace);
             }
-            let end = ctx.position.get(ln + 1, 1).shouldWrap(false);
-            if (end.kind === CursorKind.Whitespace) {
-                end.stepTo(x => x.kind !== CursorKind.Whitespace);
+            let range = monaco.Range.fromPositions(ctx.position.get(ln - 1, 'eol'), pos);
+            let lenToAdd = pos.lineLength - (pos.column - 1);
+            let text = resultingLineEndWithSpace ? '' : ' ';
+            if (lenToAdd === 0) {
+                resultingLineEndWithSpace = true;
             }
-            let range = monaco.Range.fromPositions(pos, end);
-            let text = endWithSpace || end.char === ')' ? '' : ' ';
-            ctx.editor.executeEdits('vim', [{range, text}])
-            n--;
+            else {
+                if (pos.char === ')') {
+                    text = '';
+                }
+                resultingLineEndWithSpace = pos.setColumn('$').isBlank;
+            }
+            column = resultingLineLength + (lenToAdd === 0 ? 0 : 1);
+            resultingLineLength += lenToAdd + text.length;
+            edits.push({range, text});
         }
-        ctx.editor.setPosition(ctx.position.get(ln, col).soft());
+        executeEdits(ctx, edits, () => ({lineNumber: lines[0], column}));
     }
 }
 
