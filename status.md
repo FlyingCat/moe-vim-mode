@@ -118,7 +118,7 @@ __not supported__
 
 |   Status   |   Keys   |   Description   |
 |   -   |   -   |   -   |
-|       |   %   |   Find the next item in this line after or under the cursor and jump to its match   |
+|   !   |   %   |   Find the next item in this line after or under the cursor and jump to its match. Note: currently only "([{}])"   |
 |   ✓   |   [(   |   go to [count] previous unmatched '('   |
 |   ✓   |   [{   |   go to [count] previous unmatched '{'   |
 |   ✓   |   ])   |   go to [count] next unmatched ')'   |

@@ -1,11 +1,14 @@
 import { ICommandContext } from "../command";
 import { TextPosition, CursorKind } from "./position";
 import * as monaco from "monaco-editor";
+import { isCommentOrStringAtPosition } from "../utils/token";
 
 export class TextBracket {
     static findClosing(ctx: ICommandContext, position: monaco.IPosition, pair: [string, string], count: number): TextPosition | undefined {
         let pos = ctx.position.get(position);
+        let strict: boolean | undefined;
         if (pos.char === pair[0]) {
+            strict = !isCommentOrStringAtPosition(ctx.model, pos);
             if (!pos.forward()) {
                 return undefined;
             }
@@ -13,7 +16,7 @@ export class TextBracket {
         let stack = 0;
         while (!pos.isEOF) {
             let char = pos.char;
-            if (char === pair[1]) {
+            if (char === pair[1] && !(strict && isCommentOrStringAtPosition(ctx.model, pos))) {
                 if (stack === 0) {
                     if (count === 1) {
                         return pos;
@@ -26,7 +29,7 @@ export class TextBracket {
                     stack--;
                 }
             }
-            else if (char === pair[0]) {
+            else if (char === pair[0] && !(strict && isCommentOrStringAtPosition(ctx.model, pos))) {
                 stack++;
             }
             pos.forward();
@@ -36,7 +39,9 @@ export class TextBracket {
 
     static findOpening(ctx: ICommandContext, position: monaco.IPosition, pair: [string, string], count: number): TextPosition | undefined {
         let pos = ctx.position.get(position);
+        let strict: boolean | undefined;
         if (pos.char === pair[1]) {
+            strict = !isCommentOrStringAtPosition(ctx.model, pos);
             if (!pos.backward()) {
                 return undefined;
             }
@@ -44,7 +49,7 @@ export class TextBracket {
         let stack = 0;
         do {
             let char = pos.char;
-            if (char === pair[0]) {
+            if (char === pair[0] && !(strict && isCommentOrStringAtPosition(ctx.model, pos))) {
                 if (stack === 0) {
                     if (count === 1) {
                         return pos;
@@ -57,7 +62,7 @@ export class TextBracket {
                     stack--;
                 }
             }
-            else if (char === pair[1]) {
+            else if (char === pair[1] && !(strict && isCommentOrStringAtPosition(ctx.model, pos))) {
                 stack++;
             }
         } while (pos.backward())

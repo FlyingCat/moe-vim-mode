@@ -540,6 +540,26 @@ let gotoPercent: MotionFunction = (ctx, pos, count) => {
     }
 }
 
+let jumpToMatch: MotionFunction = (ctx, _pos) => {
+    let pos = ctx.position.get(_pos);
+    let char = pos.char;
+    let to: monaco.IPosition | undefined;
+    let pairs: [string, string][] = [
+        ['(', ')'],
+        ['[', ']'],
+        ['{', '}'],
+    ];
+    pairs.forEach(x => {
+        if (char === x[0]) {
+            to = TextBracket.findClosing(ctx, pos, x, 1);
+        }
+        else if (char === x[1]) {
+            to = TextBracket.findOpening(ctx, pos, x, 1);
+        }
+    });
+    return to ? {inclusive: true, position: to} : false;
+}
+
 export const motionPattern = P.alternateList([
     P.concat(P.key('0'), P.setMotion(firstChar)),
     P.concat(P.common.countPart, P.alternateList([
@@ -552,6 +572,7 @@ export const motionPattern = P.alternateList([
         P.concat(P.key(','), RepeatLastCharOpposite),
     ])),
     P.concatList([P.common.explicitCountPart, P.key('%'), P.setMotion(gotoPercent)]),
+    P.concatList([P.key('%'), P.setMotion(jumpToMatch)]),
 ]);
 
 function inclusive(v: false | MotionResultType): false | MotionResultType {
