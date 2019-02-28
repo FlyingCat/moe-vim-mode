@@ -18,6 +18,7 @@ __not supported__
 |   -   |   -   |   -   |
 |   ✓   |   gd   |   go to declaration   |
 |   ✓   |   gh   |   show hover   |
+|   ✓   |   gl   |   trigger symbol highlight   |
 
 
 ## left-right-motions

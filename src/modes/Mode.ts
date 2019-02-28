@@ -110,7 +110,7 @@ export abstract class ModeBase extends Mode {
                     this.context.vimState.notifyKeyFailed(inputs)
                 }
                 else {
-                    handled = keyUtils.isCharKey(key);
+                    handled = keyUtils.shouldPreventDefault(key);
                     if (handled) {
                         failed = true;
                         this.context.vimState.notifyKeyFailed(inputs)

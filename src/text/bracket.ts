@@ -81,12 +81,12 @@ export class TextBracket {
     static findInnerPair(ctx: ICommandContext, pos: monaco.IPosition, pair: [string, string], count: number) {
         let result = this.findOuterPair(ctx, pos, pair, count);
         if (result) {
-            return TextBracket.getInnerPariRange(result.from, result.position);
+            return TextBracket.getInnerPariRange(ctx, result.from, result.position);
         }
         return false;
     }
 
-    private static getInnerPariRange(from: TextPosition, position: TextPosition) {
+    private static getInnerPariRange(ctx: ICommandContext, from: TextPosition, position: TextPosition) {
         from.forward();
         if (!monaco.Position.isBefore(from, position)) {
             return false;
@@ -95,12 +95,14 @@ export class TextBracket {
         if (from.kind === CursorKind.EOL && from.lineNumber + 1 < position.lineNumber) {
             let firstNonBlank = from.clone().setColumn('^');
             if (firstNonBlank.column === position.column) {
-                from.forward();
-                position.setColumn(1);
+                from = ctx.position.get(from.lineNumber + 1, 1);
+                position = ctx.position.get(position.lineNumber - 1, '$');
                 linewise = true;
             }
         }
-        position.backward(); // inclusive
+        if (!linewise) {
+            position.backward(); // inclusive
+        }
         return {from, position, linewise};
     }
 }

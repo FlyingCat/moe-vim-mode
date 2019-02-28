@@ -129,6 +129,9 @@ export const commands: {[k: string]: CommandFunction} = {
         //     return action.run();
         // }
     },
+    'gl': (ctx, mst) => {
+        ctx.editor.trigger('vim', 'editor.action.wordHighlight.trigger', null);
+    },
     '/': (ctx, mst) => {
         searchPattern(ctx, mst, 'forward', '/');
     },

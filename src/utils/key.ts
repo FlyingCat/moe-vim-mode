@@ -24,6 +24,19 @@ export function isCharKey(key: number) {
     return key < 0x100;
 }
 
+export function shouldPreventDefault(key: number) {
+    if (isCharKey(key)) {
+        return true;
+    }
+    let k = key & 0xff;
+    if (k === KeyCode.Space || k === KeyCode.Enter || k === KeyCode.Tab || k === KeyCode.Delete || k === KeyCode.Backspace) {
+        if (!isCtrlPressed(key) && !isAltPressed(key) && !isMetaPressed(key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export function isCtrlPressed(key: number) {
     return (key & (1 << 10)) !== 0;
 }
@@ -48,6 +61,7 @@ let vkey2ascii: {[k: string]: string} = {
 }
 
 let _vkey2code: {[k: string]: KeyCode} = {
+    space: KeyCode.Space,
     bs: KeyCode.Backspace,
     tab: KeyCode.Tab,
     cr: KeyCode.Enter,
@@ -188,7 +202,9 @@ function vkey2code(s: string): KeyCode | undefined {
 
 export function extract(e: monaco.IKeyboardEvent): number {
     if (!(e.ctrlKey || e.altKey || e.metaKey) && e.browserEvent.key.length === 1) {
-        return e.browserEvent.key.charCodeAt(0);
+        if (!(e.browserEvent.key === ' ' && e.shiftKey)) {
+            return e.browserEvent.key.charCodeAt(0);
+        }
     }
     return pack(e.keyCode, e.ctrlKey, e.shiftKey, e.altKey, e.metaKey);
 }
