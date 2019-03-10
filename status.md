@@ -115,6 +115,16 @@ __not supported__
 |   ✓   |   i", i', i\`  |   Like a", a' and a`, but exclude the quotes   |
 
 
+## mark-motions
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   '', \`\`   |   To the position before the latest jump   |
+|   ✓   |   '{a-z}, `{a-z}   |   Jump to the mark {a-z} in the current buffer   |
+|   ✓   |   m',  m`   |   Set the previous context mark   |
+|   ✓   |   m{a-z}   |   Set mark {a-z} at cursor position   |
+
+
 ## various-motions
 
 |   Status   |   Keys   |   Description   |

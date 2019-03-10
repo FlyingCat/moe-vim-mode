@@ -14,6 +14,7 @@ import { CommandFunction, ICommandContext, ICommandArgs, createCommand, executeC
 import * as monaco from "monaco-editor";
 import { actionsPattern } from "../actions";
 import { executeExCommand } from "../exCommand";
+import { TextMark } from "../text/mark";
 
 const escKey = keyUtils.pack(KeyCode.Escape);
 
@@ -265,8 +266,12 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
 let moveCursor = createCommand((ctx, mst) => {
     ctx.vimState.isMovingCursorByMotion = true;
     let result = applyMotion('Move', ctx, mst);
+    let cursorPos = ctx.position.get();
     if (result.to) {
         let pos = ctx.position.get(result.to.lineNumber, result.to.column).soft();
+        if (result.isJump && !monaco.Position.equals(cursorPos, pos)) {
+            TextMark.set(ctx, 'LAST', cursorPos);
+        }
         ctx.editor.setPosition(pos);
         ctx.editor.revealPosition(pos);
         if (result.keepPrevDesiredColumn !== true) {

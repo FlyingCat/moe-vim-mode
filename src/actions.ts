@@ -3,6 +3,7 @@ import * as monnaco from "monaco-editor";
 import * as P from "./matching/pattern";
 import * as keyUtils from "./utils/key";
 import { RevealType, PositionLiveType, TextPosition } from "./text/position";
+import { TextMark } from "./text/mark";
 
 function scroll(ctx: ICommandContext, args: ICommandArgs, to: 'down' | 'up', by: 'line' | 'page') {
     let pos = ctx.position.get();
@@ -137,6 +138,12 @@ const commands: {[k: string]: CommandFunction} = {
         ctx.editor.trigger('vim', 'revealLine', {lineNumber: pos.lineNumber - 1, at: 'bottom'});
         pos.reveal().live(liveType);
     },
+    'm\'': (ctx, args) => {
+        TextMark.set(ctx, 'LAST', ctx.position.get());
+    },
+    'm`': (ctx, args) => {
+        TextMark.set(ctx, 'LAST', ctx.position.get());
+    },
 };
 
 const list: P.Pattern[] = [];
@@ -146,4 +153,12 @@ for (let k in commands) {
     list.push(P.concat(keyUtils.parseToPattern(k), cmd));
 }
 
-export const actionsPattern = P.alternateList(list);
+let setMarkPatt = P.concat(P.key('m'), P.capture(P.range('az'), (cap, inputs, idx) => {
+    let ch = String.fromCharCode(inputs[idx]);
+    cap.command = createCommand((ctx, cap) => {
+        let cursor = ctx.position.get();
+        TextMark.set(ctx, ch, cursor);
+    });
+}));
+
+export const actionsPattern = P.alternate(P.alternateList(list), setMarkPatt);

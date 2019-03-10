@@ -197,6 +197,14 @@ export class Program {
                         }
                     }
                     break;
+                case OpCode.Range:
+                    if (key >= this.code[t.pc + 1] && key <= this.code[t.pc + 2]) {
+                        t.pc += 3;
+                        if (this.execNextInst(t)) {
+                            return this.matched(t);
+                        }
+                    }
+                    break;
                 case OpCode.Digit:
                     if (key >= '0'.charCodeAt(0) && key <= '9'.charCodeAt(0)) {
                         t.pc += 1;
@@ -284,6 +292,7 @@ export class Program {
             case OpCode.End:
                 return true;
             case OpCode.Key:
+            case OpCode.Range:
             case OpCode.Digit:
             case OpCode.Char:
             case OpCode.NonZeroDigit:
@@ -332,6 +341,7 @@ export class Program {
 export enum OpCode {
     End,
     Key,
+    Range,
     Digit,
     NonZeroDigit,
     Char,
@@ -350,6 +360,8 @@ function count(patt: Pattern): number {
     switch (patt.kind) {
         case 'Key':
             return 2;
+        case 'Range':
+            return 3;
         case 'Digit':
         case 'Char':
         case 'Reg':
@@ -381,6 +393,11 @@ function compile(store: Int16Array, pos: number, patt: Pattern): number {
             store[pos] = OpCode.Key;
             store[pos + 1] = patt.key;
             return 2;
+        case 'Range':
+            store[pos] = OpCode.Range;
+            store[pos + 1] = patt.from;
+            store[pos + 2] = patt.to;
+            return 3;
         case 'Digit':
             store[pos] = patt.nonZero ? OpCode.NonZeroDigit : OpCode.Digit;
             return 1;

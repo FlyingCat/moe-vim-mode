@@ -16,6 +16,12 @@ interface Key {
     key: number;
 }
 
+interface Range {
+    kind: 'Range';
+    from: number;
+    to: number;
+}
+
 interface Digit {
     kind: 'Digit';
     nonZero?: boolean;
@@ -77,11 +83,18 @@ interface Cap {
     action: CapAction;
 }
 
-export type Pattern = Key | Digit | Char | Reg | Cat | Alt | Opt | Plus | Star | Seq | Set | Cap;
+export type Pattern = Key | Range | Digit | Char | Reg | Cat | Alt | Opt | Plus | Star | Seq | Set | Cap;
 
 export function key(s: number | string, i = 0): Pattern {
     let key = typeof s === 'number' ? s : s.charCodeAt(i);
     return {kind: 'Key', key };
+}
+
+export function range(s: string): Pattern {
+    if (s.length < 2) {
+        throw new Error();
+    }
+    return { kind: 'Range', from: s.charCodeAt(0), to: s.charCodeAt(1) };
 }
 
 export function keyList(s: number[]): Pattern {

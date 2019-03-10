@@ -8,9 +8,9 @@ import { configuration } from "./configuration";
 import { ICommandContext } from "./command";
 import { TextBracket } from "./text/bracket";
 import * as monaco from "monaco-editor";
+import { TextMark } from "./text/mark";
 
-export type MotionResultType = {
-    position: monaco.IPosition;
+export type MotionProps = {
     from?: monaco.IPosition;
     inclusive?: boolean;
     keepPrevDesiredColumn?: boolean;
@@ -19,12 +19,25 @@ export type MotionResultType = {
     isJump?: boolean;
 }
 
+export type MotionResultType = {
+    position: monaco.IPosition;
+} & MotionProps;
+
 export type MotionResult = monaco.IPosition | MotionResultType | false;
 
 export type MotionFunction = (ctx: ICommandContext, pos: monaco.IPosition, count: number, source: MotionSource, implicitCount: boolean) => MotionResult;
 
 type MotionDict = { [k: string]:  MotionFunction};
 export type MotionSource = 'Move' | 'Select' | 'Operator';
+
+function wrapPosition(position: monaco.IPosition | null | undefined | false, props: MotionProps): false | MotionResultType {
+    if (position) {
+        return Object.assign({ position }, props);
+    }
+    else {
+        return false;
+    }
+}
 
 // '0'
 let firstChar: MotionFunction = (ctx, pos, count) => {
@@ -147,6 +160,7 @@ const motions: MotionDict = {
         return {
             position,
             linewise: true,
+            isJump: true,
         }
     },
     '<C-End>': (ctx, pos, count, source, implicitCount) => {
@@ -154,6 +168,7 @@ const motions: MotionDict = {
         return {
             position,
             inclusive: true,
+            isJump: true,
         }
     },
     'gg, <C-Home>': (ctx, pos, count, source, implicitCount) => {
@@ -161,6 +176,7 @@ const motions: MotionDict = {
         return {
             position,
             linewise: true,
+            isJump: true,
         }
     },
     //#endregion
@@ -259,6 +275,7 @@ const motions: MotionDict = {
         return {
             position,
             linewise: true,
+            isJump: true,
         }
     },
     'M': (ctx, pos, count, source) => {
@@ -271,6 +288,7 @@ const motions: MotionDict = {
         return {
             position,
             linewise: true,
+            isJump: true,
         }
     },
     'L': (ctx, pos, count, source) => {
@@ -291,6 +309,7 @@ const motions: MotionDict = {
         return {
             position,
             linewise: true,
+            isJump: true,
         }
     },
     //#endregion
@@ -351,10 +370,7 @@ const motions: MotionDict = {
             return false;
         }
         let result = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'forward' : 'backward', count);
-        if (result) {
-            return result;
-        }
-        return false;
+        return wrapPosition(result, {isJump: true});
     },
     'N': (ctx, pos, count) => {
         let lastSearch = ctx.globalState.lastSearch;
@@ -363,10 +379,23 @@ const motions: MotionDict = {
             return false;
         }
         let result = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'backward' : 'forward', count);
-        if (result) {
-            return result;
+        return wrapPosition(result, {isJump: true});
+    },
+    //#endregion
+
+    //#region marks
+    "''": (ctx, pos, count) => {
+        let mark = TextMark.get(ctx, 'LAST');
+        if (mark) {
+            return {
+                position: ctx.position.get(mark.lineNumber, '^'),
+                isJump: true,
+            };
         }
         return false;
+    },
+    "``": (ctx, pos, count) => {
+        return wrapPosition(TextMark.get(ctx, 'LAST'), {isJump: true});
     },
     //#endregion
 }
@@ -537,6 +566,7 @@ let gotoPercent: MotionFunction = (ctx, pos, count) => {
     return {
         position,
         linewise: true,
+        isJump: true,
     }
 }
 
@@ -557,8 +587,29 @@ let jumpToMatch: MotionFunction = (ctx, _pos) => {
             to = TextBracket.findOpening(ctx, pos, x, 1);
         }
     });
-    return to ? {inclusive: true, position: to} : false;
+    return wrapPosition(to, {inclusive: true, isJump: true});
 }
+
+let gotoMark = P.capture(P.range('az'), (cap, inputs, idx) => {
+    let ch = String.fromCharCode(inputs[idx]);
+    cap.motion = (ctx, pos) => {
+        return wrapPosition(TextMark.get(ctx, ch), {isJump: true});
+    }
+});
+
+let gotoMarkFirstNonBlank = P.capture(P.range('az'), (cap, inputs, idx) => {
+    let ch = String.fromCharCode(inputs[idx]);
+    cap.motion = (ctx, pos) => {
+        let mark = TextMark.get(ctx, ch);
+        if (mark) {
+            return {
+                position: ctx.position.get(mark.lineNumber, '^'),
+                isJump: true,
+            }
+        }
+        return false;
+    }
+});
 
 export const motionPattern = P.alternateList([
     P.concat(P.key('0'), P.setMotion(firstChar)),
@@ -570,6 +621,8 @@ export const motionPattern = P.alternateList([
         P.concat(P.key('T'), backwardTillChar),
         P.concat(P.key(';'), repeatLastChar),
         P.concat(P.key(','), RepeatLastCharOpposite),
+        P.concat(P.key('`'), gotoMark),
+        P.concat(P.key("'"), gotoMarkFirstNonBlank),
     ])),
     P.concatList([P.common.explicitCountPart, P.key('%'), P.setMotion(gotoPercent)]),
     P.concatList([P.key('%'), P.setMotion(jumpToMatch)]),
