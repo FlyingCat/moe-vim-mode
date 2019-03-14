@@ -29,7 +29,7 @@ const registry = new Registry();
 
 class ThreadState implements IMatchCapture
 {
-    private _ref = 1;
+    private _ref: number | null;
 
     // captures
     command?: ICommand;
@@ -42,26 +42,41 @@ class ThreadState implements IMatchCapture
     // runtime props
     positions: number[] = [];
     keyMap?: SeqMap<number, number>;
+    callStack: number[] = [];
 
-    constructor() {
+    constructor(frozen = false) {
+        this._ref = frozen ? null : 1;
+    }
+
+    freeze() {
+        this._ref = null;
+    }
+
+    isFrozen() {
+        return this._ref === null;
     }
 
     ref(): ThreadState {
-        this._ref += 1;
+        if (this._ref !== null) {
+            this._ref += 1;
+        }
         return this;
     }
 
     cloneIfNeed(): ThreadState {
-        if (this._ref > 1) {
+        if (this._ref === null || this._ref > 1) {
             let clone = new ThreadState();
             clone.command = this.command;
             clone.count = this.count;
             clone.motion = this.motion;
             clone.linewise = this.linewise;
             clone.positions = this.positions.slice();
+            clone.callStack = this.callStack.slice();
             clone.keyMap = this.keyMap;
             clone.register = this.register;
-            this._ref--;
+            if (this._ref !== null) {
+                this._ref--;
+            }
             return clone;
         }
         else {
@@ -125,10 +140,130 @@ class ThreadState implements IMatchCapture
         obj.keyMap = undefined;
         return obj;
     }
+
+    pushCall(pc: number) {
+        let obj = this.cloneIfNeed();
+        obj.callStack.push(pc);
+        return obj;
+    }
+
+    popCall(): {pc: number, state: ThreadState} {
+        let state = this.cloneIfNeed();
+        let pc = state.callStack.pop();
+        if (pc === undefined) {
+            throw new Error('Array.pop fail.')
+        }
+        return {pc, state};
+    }
 }
 
 class Thread {
-    constructor(public pc: number, public state: ThreadState) {
+    private frozen = false;
+
+    constructor(private _pc: number, private _state: ThreadState) {
+    }
+
+    get pc() {
+        return this._pc;
+    }
+
+    get state() {
+        return this._state;
+    }
+
+    freeze() {
+        this.state.freeze();
+        this.frozen = true;
+    }
+
+    update(pc?: number, state?: ThreadState): Thread {
+        pc = pc || this.pc;
+        state = state || this.state;
+        if (pc === this.pc && state === this.state) {
+            return this;
+        }
+        if (this.frozen) {
+            return new Thread(pc, state);
+        }
+        else {
+            this._pc = pc;
+            this._state = state;
+            return this;
+        }
+    }
+}
+
+class ThreadList {
+    private literalKeys = new Map<number, Thread | Thread[]>();
+
+    private others: Thread[] = [];
+
+    private frozen = false;
+
+    push(thread: Thread) {
+        if (this.frozen) {
+            throw new Error();
+        }
+        this.others.push(thread);
+    }
+
+    pushKey(key: number, thread: Thread) {
+        if (this.frozen) {
+            throw new Error();
+        }
+        let val = this.literalKeys.get(key);
+        if (val) {
+            if (Array.isArray(val)) {
+                val.push(thread);
+            }
+            else {
+                this.literalKeys.set(key, [val, thread]);
+            }
+        }
+        else {
+            this.literalKeys.set(key, thread);
+        }
+    }
+
+    getMatchedKeyThreads(key: number): ReadonlyArray<Thread> {
+        let val = this.literalKeys.get(key);
+        if (val) {
+            if (Array.isArray(val)) {
+                return val;
+            }
+            else {
+                return [val];
+            }
+        }
+        else {
+            return [];
+        }
+    }
+
+    getCommonThreads(): ReadonlyArray<Thread> {
+        return this.others;
+    }
+
+    empty(): boolean {
+        return this.others.length === 0 && this.literalKeys.size === 0;
+    }
+
+    freeze() {
+        this.literalKeys.forEach(val => {
+            if (Array.isArray(val)) {
+                for (const t of val) {
+                    t.freeze();
+                }
+            }
+            else {
+                val.freeze();
+            }
+        });
+        for (const t of this.others) {
+            t.freeze();
+        }
+        this.frozen = true;
+        return this;
     }
 }
 
@@ -155,15 +290,28 @@ export class Program {
 
     private inputs: number[] = [];
 
-    private threads: Thread[] = [];
+    private threads = new ThreadList();
+
+    private readonly startupThreads: ThreadList;
 
     private source: string | null = null;
 
     constructor(patt: Pattern) {
-        this.code = new Int16Array(count(patt) + 1);
-        let len = compile(this.code, 0, patt);
-        this.code[len] = OpCode.End;
-        this.execNextInst(new Thread(0, new ThreadState()));
+        let routines: {pattern: Pattern, size: number, start: number}[] = [];
+        let size = count(patt, routines) + 1;
+        for (const item of routines) {
+            item.start = size;
+            size += item.size + 1;
+        }
+        this.code = new Int16Array(size);
+        let len = compile(this.code, 0, patt, routines);
+        this.code[len++] = OpCode.End;
+        for (const item of routines) {
+            len += compile(this.code, len, item.pattern, routines);
+            this.code[len++] = OpCode.EndCall;
+        }
+        this.execNextInst(new Thread(0, new ThreadState(true)));
+        this.startupThreads = this.threads.freeze();
     }
 
     getInputs(): ReadonlyArray<number> {
@@ -185,57 +333,55 @@ export class Program {
         }
         this.inputs.push(key);
         let clist = this.threads;
-        this.threads = [];
-        for (let i = 0; i < clist.length; i++) {
-            let t = clist[i];
+        this.threads = new ThreadList();
+        let keyThreads = clist.getMatchedKeyThreads(key);
+        let endState: ThreadState | undefined = undefined;
+        for (let i = 0; i < keyThreads.length; i++) {
+            let t = keyThreads[i];
+            if (this.code[t.pc] !== OpCode.Key) {
+                throw new Error();
+            }
+            if (endState = this.execNextInst(t.update(t.pc + 2))) {
+                return this.matched(endState);
+            }
+        }
+        let commonThreads = clist.getCommonThreads()
+        for (let i = 0; i < commonThreads.length; i++) {
+            let t = commonThreads[i];
             switch (this.code[t.pc]) {
-                case OpCode.Key:
-                    if (this.code[t.pc + 1] === key) {
-                        t.pc += 2;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
-                        }
-                    }
-                    break;
                 case OpCode.Range:
                     if (key >= this.code[t.pc + 1] && key <= this.code[t.pc + 2]) {
-                        t.pc += 3;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
+                        if (endState = this.execNextInst(t.update(t.pc + 3))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
                 case OpCode.Digit:
                     if (key >= '0'.charCodeAt(0) && key <= '9'.charCodeAt(0)) {
-                        t.pc += 1;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
+                        if (endState = this.execNextInst(t.update(t.pc + 1))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
                 case OpCode.NonZeroDigit:
                     if (key >= '1'.charCodeAt(0) && key <= '9'.charCodeAt(0)) {
-                        t.pc += 1;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
+                        if (endState = this.execNextInst(t.update(t.pc + 1))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
                 case OpCode.Char:
                     if (isCharKey(key)) {
-                        t.pc += 1;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
+                        if (endState = this.execNextInst(t.update(t.pc + 1))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
                 case OpCode.Register:
                     let rid = registerManager.convertToId(key);
                     if (rid !== undefined) {
-                        t.state = t.state.setRegister(rid);
-                        t.pc += 1;
-                        if (this.execNextInst(t)) {
-                            return this.matched(t);
+                        if (endState = this.execNextInst(t.update(t.pc + 1, t.state.setRegister(rid)))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
@@ -244,17 +390,15 @@ export class Program {
                     let r = map.get(key);
                     if (r !== undefined) {
                         if (r instanceof Map) {
-                            t.state = t.state.setMap(r);
-                            this.threads.push(t);
+                            this.threads.push(t.update(undefined, t.state.setMap(r)));
                         }
                         else {
-                            t.state = t.state.resetMap();
-                            if ((registry.get(this.code[t.pc + 2]) as SeqAction)(t.state, r) === true) {
-                                return this.matched(t);
+                            let newState = t.state.resetMap();
+                            if ((registry.get(this.code[t.pc + 2]) as SeqAction)(newState, r) === true) {
+                                return this.matched(newState);
                             }
-                            t.pc += 3;
-                            if (this.execNextInst(t)) {
-                                return this.matched(t);
+                            if (endState = this.execNextInst(t.update(t.pc + 3, newState))) {
+                                return this.matched(endState);
                             }
                         }
                     }
@@ -264,7 +408,7 @@ export class Program {
             }
         }
         let inputs = this.inputs;
-        if (this.threads.length === 0) {
+        if (this.threads.empty()) {
             this.reset();
             return {kind: 'Fail', inputs};
         }
@@ -275,23 +419,29 @@ export class Program {
 
     reset() {
         this.inputs = [];
-        this.threads = [];
         this.source = null;
-        this.execNextInst(new Thread(0, new ThreadState()));
+        this.threads = this.startupThreads;
     }
 
-    private matched(t: Thread): StepResult {
+    private matched(state: ThreadState): StepResult {
         let inputs = this.inputs;
         this.reset();
-        return { kind: 'Matched', inputs, capture: t.state };
+        return { kind: 'Matched', inputs, capture: state };
     }
 
-    private execNextInst(t: Thread): boolean {
+    private execNextInst(t: Thread): ThreadState | undefined {
         let pos = t.pc;
         switch (this.code[pos]) {
             case OpCode.End:
-                return true;
+                return t.state;
+            case OpCode.BeginCall:
+                return this.execNextInst(t.update(this.code[pos + 1], t.state.pushCall(pos + 2)));
+            case OpCode.EndCall:
+                let res = t.state.popCall();
+                return this.execNextInst(t.update(res.pc, res.state));
             case OpCode.Key:
+                this.threads.pushKey(this.code[pos + 1], t);
+                break;
             case OpCode.Range:
             case OpCode.Digit:
             case OpCode.Char:
@@ -301,45 +451,35 @@ export class Program {
                 this.threads.push(t);
                 break;
             case OpCode.SetCommand:
-                t.state = t.state.setCommand(registry.get(this.code[pos + 1]));
-                t.pc += 2;
-                return this.execNextInst(t);
+                return this.execNextInst(t.update(t.pc + 2, t.state.setCommand(registry.get(this.code[pos + 1]))));
             case OpCode.SetMotion:
-                t.state = t.state.setMotion(registry.get(this.code[pos + 1]));
-                t.pc += 2;
-                return this.execNextInst(t);
+                return this.execNextInst(t.update(t.pc + 2, t.state.setMotion(registry.get(this.code[pos + 1]))));
             case OpCode.SetLinewise:
-                t.state = t.state.setLinewise(this.code[pos + 1] === 1);
-                t.pc += 2;
-                return this.execNextInst(t);
+                return this.execNextInst(t.update(t.pc + 2, t.state.setLinewise(this.code[pos + 1] === 1)));
             case OpCode.Push:
-                t.state = t.state.pushPositon(this.inputs.length);
-                t.pc += 1;
-                return this.execNextInst(t);
+                return this.execNextInst(t.update(t.pc + 1, t.state.pushPositon(this.inputs.length)));
             case OpCode.Pop:
                 let r = t.state.popPositon();
-                t.state = r.state;
-                (registry.get(this.code[pos + 1]) as CapAction)(t.state, this.inputs, r.value);
-                t.pc += 2;
-                return this.execNextInst(t);
+                (registry.get(this.code[pos + 1]) as CapAction)(r.state, this.inputs, r.value);
+                return this.execNextInst(t.update(t.pc + 2, r.state));
             case OpCode.Jump:
-                t.pc = pos + this.code[pos + 1];
-                return this.execNextInst(t);
+                return this.execNextInst(t.update(pos + this.code[pos + 1]));
             case OpCode.Split:
-                t.pc += 2;
-                let r1 = this.execNextInst(t);
+                let r1 = this.execNextInst(t.update(t.pc + 2));
                 let r2 = this.execNextInst(new Thread(pos + this.code[pos + 1], t.state.ref()));
                 if (r1 || r2) {
                     throw new Error('"Split" direct to end state.')
                 }
                 break;
         }
-        return false;
+        return undefined;
     }
 }
 
 export enum OpCode {
     End,
+    BeginCall,
+    EndCall,
     Key,
     Range,
     Digit,
@@ -356,7 +496,7 @@ export enum OpCode {
     SetLinewise,
 }
 
-function count(patt: Pattern): number {
+function count(patt: Pattern, routinesRef: {pattern: Pattern, size: number}[]): number {
     switch (patt.kind) {
         case 'Key':
             return 2;
@@ -367,25 +507,32 @@ function count(patt: Pattern): number {
         case 'Reg':
             return 1;
         case 'Cat':
-            return count(patt.left) + count(patt.right);
+            return count(patt.left, routinesRef) + count(patt.right, routinesRef);
         case 'Alt':
-            return 4 + count(patt.left) + count(patt.right);
+            return 4 + count(patt.left, routinesRef) + count(patt.right, routinesRef);
         case 'Opt':
-            return 2 + count(patt.child);
+            return 2 + count(patt.child, routinesRef);
         case 'Plus':
-            return 2 + count(patt.child);
+            return 2 + count(patt.child, routinesRef);
         case 'Star':
-            return 4 + count(patt.child);
+            return 4 + count(patt.child, routinesRef);
         case 'Seq':
             return 3;
         case 'Set':
             return 2;
         case 'Cap':
-            return 3 + count(patt.child);
+            return 3 + count(patt.child, routinesRef);
+        case 'Routine':
+            if (routinesRef.findIndex(x => x.pattern === patt.child) < 0) {
+                routinesRef.push({pattern: patt.child, size: count(patt.child, routinesRef)});
+            }
+            return 2;
+        default:
+            throw new Error();
     }
 }
 
-function compile(store: Int16Array, pos: number, patt: Pattern): number {
+function compile(store: Int16Array, pos: number, patt: Pattern, routinesRef: {pattern: Pattern, start: number}[]): number {
     let len: number;
     let len2: number;
     switch (patt.kind) {
@@ -408,28 +555,28 @@ function compile(store: Int16Array, pos: number, patt: Pattern): number {
             store[pos] = OpCode.Register;
             return 1;
         case 'Cat':
-            len = compile(store, pos, patt.left);
-            return len + compile(store, pos + len, patt.right);
+            len = compile(store, pos, patt.left, routinesRef);
+            return len + compile(store, pos + len, patt.right, routinesRef);
         case 'Alt':
-            len = compile(store, pos + 2, patt.left);
-            len2 = compile(store, pos + len + 4, patt.right);
+            len = compile(store, pos + 2, patt.left, routinesRef);
+            len2 = compile(store, pos + len + 4, patt.right, routinesRef);
             store[pos] = OpCode.Split;
             store[pos + 1] = len + 4;
             store[pos + len  + 2] = OpCode.Jump;
             store[pos + len  + 3] = len2 + 2;
             return len + len2 + 4;
         case 'Opt':
-            len = compile(store, pos + 2, patt.child);
+            len = compile(store, pos + 2, patt.child, routinesRef);
             store[pos] = OpCode.Split;
             store[pos + 1] = len + 2;
             return len + 2;
         case 'Plus':
-            len = compile(store, pos, patt.child);
+            len = compile(store, pos, patt.child, routinesRef);
             store[pos + len] = OpCode.Split;
             store[pos + len + 1] = -len;
             return len + 2;
         case 'Star':
-            len = compile(store, pos + 2, patt.child);
+            len = compile(store, pos + 2, patt.child, routinesRef);
             store[pos] = OpCode.Split;
             store[pos + 1] = len + 4;
             store[pos + len  + 2] = OpCode.Jump;
@@ -458,9 +605,19 @@ function compile(store: Int16Array, pos: number, patt: Pattern): number {
             return 2;
         case 'Cap':
             store[pos] = OpCode.Push;
-            len = compile(store, pos + 1, patt.child);
+            len = compile(store, pos + 1, patt.child, routinesRef);
             store[pos + len + 1] = OpCode.Pop;
             store[pos + len + 2] = registry.put(patt.action);
             return len + 3;
+        case 'Routine':
+            let routine = routinesRef.find(x => x.pattern === patt.child);
+            if (!routine) {
+                throw new Error();
+            }
+            store[pos] = OpCode.BeginCall;
+            store[pos + 1] = routine.start;
+            return 2;
+        default:
+            throw new Error();
     }
 }

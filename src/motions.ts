@@ -611,7 +611,7 @@ let gotoMarkFirstNonBlank = P.capture(P.range('az'), (cap, inputs, idx) => {
     }
 });
 
-export const motionPattern = P.alternateList([
+export const motionPattern = P.routine(P.alternateList([
     P.concat(P.key('0'), P.setMotion(firstChar)),
     P.concat(P.common.countPart, P.alternateList([
         P.seq(motionMap, (c, v) => c.motion = v),
@@ -626,7 +626,7 @@ export const motionPattern = P.alternateList([
     ])),
     P.concatList([P.common.explicitCountPart, P.key('%'), P.setMotion(gotoPercent)]),
     P.concatList([P.key('%'), P.setMotion(jumpToMatch)]),
-]);
+]));
 
 function inclusive(v: false | MotionResultType): false | MotionResultType {
     if (v === false) {

@@ -62,6 +62,11 @@ interface Star {
     child: Pattern;
 }
 
+interface Routine {
+    kind: 'Routine';
+    child: Pattern;
+}
+
 export type SeqAction = (c: IMatchCapture, v: any) => void | boolean;
 
 interface Seq {
@@ -83,7 +88,7 @@ interface Cap {
     action: CapAction;
 }
 
-export type Pattern = Key | Range | Digit | Char | Reg | Cat | Alt | Opt | Plus | Star | Seq | Set | Cap;
+export type Pattern = Key | Range | Digit | Char | Reg | Cat | Alt | Opt | Plus | Star | Seq | Set | Cap | Routine;
 
 export function key(s: number | string, i = 0): Pattern {
     let key = typeof s === 'number' ? s : s.charCodeAt(i);
@@ -139,6 +144,10 @@ export function optional(child: Pattern): Pattern {
     return {kind: 'Opt', child};
 }
 
+export function routine(child: Pattern): Pattern {
+    return {kind: 'Routine', child};
+}
+
 export function repeat(child: Pattern, atLeastOnce?: boolean): Pattern {
     return atLeastOnce ? {kind: 'Plus', child} : {kind: 'Star', child};
 }
@@ -174,7 +183,7 @@ export namespace common {
         c.count = val * (c.count || 1);
     }
 
-    export const countPart: Pattern = optional(capture(integer, setCountValue));
+    export const countPart: Pattern = routine(optional(capture(integer, setCountValue)));
 
     export const explicitCountPart: Pattern = capture(integer, setCountValue);
 
