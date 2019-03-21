@@ -91,14 +91,76 @@ class MarkModel {
     }
 }
 
+type MarkAccessor = {
+    get(ctx: ICommandContext): monaco.IPosition | undefined;
+    set(ctx: ICommandContext, pos: monaco.IPosition): void;
+}
+
+const specialMarks: {[k: string]: MarkAccessor} = {
+    '<': {
+        get(ctx) {
+            let prev = ctx.vimState.previousVisual;
+            if (prev) {
+                if (prev.kind === 'char') {
+                    return prev.start;
+                }
+                else {
+                    if (prev.first <= prev.last) {
+                        return ctx.position.get(prev.first, 1);
+                    }
+                    else {
+                        return ctx.position.get(prev.first, '$');
+                    }
+                }
+            }
+            return undefined;
+        },
+        set(ctx, pos) {
+            throw new Error('Not implemented');
+        }
+    },
+    '>': {
+        get(ctx) {
+            let prev = ctx.vimState.previousVisual;
+            if (prev) {
+                if (prev.kind === 'char') {
+                    return prev.end;
+                }
+                else {
+                    if (prev.first <= prev.last) {
+                        return ctx.position.get(prev.last, '$');
+                    }
+                    else {
+                        return ctx.position.get(prev.last, 1);
+                    }
+                }
+            }
+            return undefined;
+        },
+        set(ctx, pos) {
+            throw new Error('Not implemented');
+        }
+    },
+}
+
 export class TextMark {
     static get(ctx: ICommandContext, name: string): monaco.IPosition | undefined {
-        let instance = MarkModel.create(ctx.editor);
-        return instance.getMark(name);
+        if (specialMarks[name]) {
+            return specialMarks[name].get(ctx);
+        }
+        else {
+            let instance = MarkModel.create(ctx.editor);
+            return instance.getMark(name);
+        }
     }
 
     static set(ctx: ICommandContext, name: string, pos: monaco.IPosition) {
-        let instance = MarkModel.create(ctx.editor);
-        instance.setMark(name, pos);
+        if (specialMarks[name]) {
+            specialMarks[name].set(ctx, pos);
+        }
+        else {
+            let instance = MarkModel.create(ctx.editor);
+            instance.setMark(name, pos);
+        }
     }
 }

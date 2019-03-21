@@ -1,6 +1,7 @@
 import { configuration } from "./configuration";
 import { ICommandContext, executeCommand } from "./command";
 import { TextSearch } from "./text/search";
+import { TextMark } from "./text/mark";
 
 type OptionUnion = {
     type: 'boolean';
@@ -42,8 +43,10 @@ const options: Option[] = [
     }
 ];
 
+type Matcher = ((s: string) => any | null) | RegExp;
+
 export interface IExCommand {
-    matcher: ((s: string) => any | null) | RegExp;
+    matcher: Matcher;
     handler(ctx: ICommandContext, values: any): void | Promise<void>;
 }
 
@@ -147,39 +150,306 @@ const exCommands: IExCommand[] = [
             }
         }
     }, {
-        matcher: /^nohl?\s*$/,
+        matcher: /^noh(?:l|ls|lse|lsea|lsear|lsearc|lsearch)?\s*$/,
         handler() {
             TextSearch.noHighLight();
         }
     }
 ];
 
-export function addExCommand(exCommand: IExCommand) {
-    exCommands.push(exCommand);
+export function addExCommand(command: IExCommand) {
+    exCommands.push(command);
 }
 
-export function executeExCommand(ctx: ICommandContext, text: string): void | Promise<void> {
-    text = text.replace(/^\s+/, '');
-    for (const cmd of exCommands) {
+export interface ICommandRange {
+    readonly first: number;
+    readonly last: number;
+}
+
+export interface IExRangeCommand {
+    matcher: Matcher;
+    handler(ctx: ICommandContext, range: ICommandRange, values: any): void | PromiseLike<void>;
+}
+
+const rangeCommands: IExRangeCommand[] = [];
+
+export function addExRangeCommand(command: IExRangeCommand) {
+    rangeCommands.push(command);
+}
+
+function findCommand<T>(commands: {matcher: Matcher, handler: T}[], text: string) {
+    for (const command of commands) {
         let matchedValues: any;
-        let matched = false;
-        if (typeof cmd.matcher === 'function') {
-            let r = cmd.matcher(text);
+        if (typeof command.matcher === 'function') {
+            let r = command.matcher(text);
             if (r !== null) {
-                matched = true;
-                matchedValues = r;
+                return {command, matchedValues: r};
             }
         }
         else {
-            let m = text.match(cmd.matcher);
+            let m = text.match(command.matcher);
             if (m) {
-                matched = true;
-                matchedValues = m;
+                return {command, matchedValues: m};
             }
         }
+    }
+}
+
+export function executeExCommand(ctx: ICommandContext, text: string): void | PromiseLike<void> {
+    text = text.replace(/^\s+/, '');
+    let range: {range: [RangeLine, RangeLine], next: number} | null = null;
+    try {
+        range = new RangeParser(text).match();
+    }
+    catch (e) {
+        ctx.vimState.outputError('Invalid command range: ' + text);
+        return;
+    }
+    if (range) {
+        text = text.substring(range.next);
+        if (text === '') {
+            let ln = resolveRangeLine(ctx, range.range[1]);
+            if (typeof ln === 'string') {
+                ctx.vimState.outputError(ln);
+            }
+            else {
+                ctx.position.get(ln, '^').live();
+            }
+            return;
+        }
+        let matched = findCommand(rangeCommands, text);
         if (matched) {
-            return cmd.handler(ctx, matchedValues);
+            let first = resolveRangeLine(ctx, range.range[0]);
+            if (typeof first === 'string') {
+                ctx.vimState.outputError(first);
+                return;
+            }
+            let last = resolveRangeLine(ctx, range.range[1]);
+            if (typeof last === 'string') {
+                ctx.vimState.outputError(last);
+                return;
+            }
+            if (first > last) {
+                let tmp = first;
+                first = last;
+                last = tmp;
+            }
+            return matched.command.handler(ctx, {first, last}, matched.matchedValues);
+        }
+    }
+    else {
+        {
+            let matched = findCommand(exCommands, text);
+            if (matched) {
+                return matched.command.handler(ctx, matched.matchedValues);
+            }
+        }
+        {
+            let matched = findCommand(rangeCommands, text);
+            let ln = ctx.editor.getPosition()!.lineNumber;
+            if (matched) {
+                return matched.command.handler(ctx, {first: ln, last: ln}, matched.matchedValues);
+            }
         }
     }
     ctx.vimState.outputError('Invalid command: ' + text);
+}
+
+type RangeLineUnion = {
+    kind: 'number';
+    value: number;
+} | {
+    kind: 'cursor';
+} | {
+    kind: 'last';
+} | {
+    kind: 'mark';
+    name: string;
+}
+
+type RangeLine = RangeLineUnion & { offset?: number }
+
+function resolveRangeLine(ctx: ICommandContext, val: RangeLine): number | string {
+    let lineCount = ctx.model.getLineCount();
+    let ln: number;
+    if (val.kind === 'number') {
+        ln = val.value;
+    }
+    else if (val.kind === 'cursor') {
+        ln = ctx.editor.getPosition()!.lineNumber;
+    }
+    else if (val.kind === 'last') {
+        ln = lineCount;
+    }
+    else {
+        let markPos = TextMark.get(ctx, val.name);
+        if (!markPos) {
+            return 'Invalid mark';
+        }
+        ln = markPos.lineNumber;
+    }
+    if (val.offset) {
+        ln += val.offset;
+    }
+    return ln > lineCount ? lineCount : (ln < 1 ? 1 : ln);
+}
+
+function ifThen<T>(r: T | null, cb: (v: T) => void) {
+    if (r !== null) {
+        cb(r);
+    }
+}
+
+class RangeParser {
+    private pos = 0;
+
+    private len: number;
+
+    constructor(readonly input: string) {
+        this.len = input.length;
+    }
+
+    match(): {range: [RangeLine, RangeLine], next: number} | null {
+        // let value: RangeValue | null = null;
+        const range: RangeLine[] = [];
+        if (this.matchOne(range)) {
+            while (this.tryMatchString(',')) {
+                this.skipWhiteSpace();
+                if (!this.matchOne(range)) {
+                    break;
+                }
+            }
+        }
+        let size = range.length;
+        if (size === 0) {
+            return null;
+        }
+        else if (size === 1) {
+            return {range: [range[0], range[0]], next: this.pos};
+        }
+        else {
+            return { range: [range[size - 2], range[size - 1]], next: this.pos };
+        }
+    }
+
+    matchOne(range: RangeLine[]): boolean {
+        let num: number | null = null;
+        let s: string | null = null;
+        if ((num = this.tryMatchNumber()) !== null) {
+            const line: RangeLine = {kind: 'number', value: num};
+            this.matchOffset(line);
+            range.push(line);
+            this.skipWhiteSpace();
+            return true;
+        }
+        else if (s = this.tryMatchCharSet('.$')) {
+            let kind: any = s === '.' ? 'cursor' : 'last';
+            const line: RangeLine = { kind };
+            this.matchOffset(line);
+            range.push(line);
+            this.skipWhiteSpace();
+            return true;
+        }
+        else if (this.tryMatchString('%')) {
+            const first: RangeLine = {kind: 'number', value: 1};
+            const last: RangeLine = {kind: 'last'};
+            this.matchOffset();
+            range.push(first);
+            range.push(last);
+            this.skipWhiteSpace();
+            return true;
+        }
+        else if (this.tryMatchString('*')) {
+            const first: RangeLine = {kind: 'mark', name: '<'};
+            const last: RangeLine = {kind: 'mark', name: '>'};
+            this.matchOffset();
+            range.push(first);
+            range.push(last);
+            this.skipWhiteSpace();
+            return true;
+        }
+        else if (this.tryMatchString("'")) {
+            let name = this.matchChar();
+            const line: RangeLine = {kind: 'mark', name};
+            this.matchOffset(line);
+            range.push(line);
+            this.skipWhiteSpace();
+            return true;
+        }
+        return false;
+    }
+
+    matchOffset(line?: RangeLine) {
+        let s: string | null;
+        let offset = 0;
+        while (s = this.tryMatchCharSet('+-')) {
+            let num = s === '+' ? 1 : -1;
+            ifThen(this.tryMatchNumber(), x => num *= x);
+            offset += num;
+        }
+        if (offset !== 0 && line) {
+            line.offset = offset;
+        }
+    }
+
+    skipWhiteSpace() {
+        while (this.pos < this.len) {
+            let code = this.input.charCodeAt(this.pos);
+            if (code === 32 || code === 9) {
+                this.pos++;
+            }
+            else {
+                break;
+            }
+        }
+    }
+
+    matchChar() {
+        if (this.pos >= this.len) {
+            throw new Error();
+        }
+        return this.input.charAt(this.pos++);
+    }
+
+    tryMatchString(str: string): string | null {
+        if (this.pos + str.length - 1 < this.len) {
+            if (this.input.substring(this.pos, this.pos + str.length) === str) {
+                this.pos += str.length;
+                return str;
+            }
+        }
+        return null;
+    }
+
+    tryMatchCharSet(set: string): string | null {
+        if (this.pos < this.len) {
+            let ch = this.input[this.pos];
+            if (set.indexOf(ch) >= 0) {
+                this.pos++;
+                return ch;
+            }
+        }
+        return null;
+    }
+
+    tryMatchNumber(): number | null {
+        let start = this.pos;
+        let cur = this.pos;
+        while (cur < this.len) {
+            let c = this.input.charCodeAt(cur);
+            if (c >= 48 && c <= 57) {
+                cur++;
+            }
+            else {
+                break;
+            }
+        }
+        if (start !== cur) {
+            this.pos = cur;
+            return parseInt(this.input.substring(start, cur));
+        }
+        else {
+            return null;
+        }
+    }
 }

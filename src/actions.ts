@@ -4,6 +4,7 @@ import * as P from "./matching/pattern";
 import * as keyUtils from "./utils/key";
 import { RevealType, PositionLiveType, TextPosition } from "./text/position";
 import { TextMark } from "./text/mark";
+import { executeExCommand } from "./exCommand";
 
 function scroll(ctx: ICommandContext, args: ICommandArgs, to: 'down' | 'up', by: 'line' | 'page') {
     let pos = ctx.position.get();
@@ -143,6 +144,26 @@ const commands: {[k: string]: CommandFunction} = {
     },
     'm`': (ctx, args) => {
         TextMark.set(ctx, 'LAST', ctx.position.get());
+    },
+    ':': (ctx, mst) => {
+        let text = '';
+        if (ctx.vimState.isVisual()) {
+            text = "'<,'>";
+        }
+        else {
+            if (mst.count === 1) {
+                text = '.';
+            }
+            else if (mst.count) {
+                text = '.,.+' + (mst.count - 1).toString();
+            }
+        }
+        ctx.vimState.requestExternalInput(':', text, () => {}).then(text => {
+            if (!text) {
+                return;
+            }
+            executeExCommand(ctx, text);
+        });
     },
 };
 

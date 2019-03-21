@@ -9,6 +9,9 @@ import { ColumnValue, CursorKind } from "./text/position";
 import { recorder } from "./recorder";
 import { ICommandContext, ICommandArgs, createCommand, ICommand } from "./command";
 import * as monaco from "monaco-editor";
+import { addExRangeCommand } from "./exCommand";
+import { TextReplacePattern } from "./text/replace";
+import { configuration } from "./configuration";
 
 const enum Source {
     Cursor, // empty char range [cursor, cursor)
@@ -995,3 +998,130 @@ export const normalOperatorPattern = P.alternateList([normalCmdPatterns, P.alter
 export const visualOperatorPattern = P.alternateList([visualCmdPatterns, vRCharPatt]);
 
 //#endregion
+
+addExRangeCommand({
+    matcher: /^d(?:e|el|ele|elet|elete)?(?:\s+([^\d]))?(?:\s*(\d+))?\s*$/,
+    handler(ctx, range, cap: string[]) {
+        let register: number | undefined = undefined;
+        let count: number | undefined = undefined;
+        if (cap[1]) {
+            register = registerManager.convertToId(cap[1].charCodeAt(0));
+            if (!register) {
+                ctx.vimState.outputError('Invalid register');
+                return;
+            }
+        }
+        if (cap[2]) {
+            count = parseInt(cap[2]);
+            if (count < 1) {
+                ctx.vimState.outputError('Positive count required');
+                return;
+            }
+        }
+        if (count) {
+            range = {first: range.last, last: range.last + count - 1};
+        }
+        let arg: OperatorArg = {
+            kind: 'LineRange',
+            source: Source.ByLine,
+            lines: [range.first, range.last],
+            commandArgs: { register },
+        }
+        ctx.editor.pushUndoStop();
+        return doOperator(null as any, deleteText, ctx, arg, () => {
+            ctx.editor.pushUndoStop();
+            ctx.editor.revealPosition(ctx.position.get());
+            ctx.vimState.toNormal();
+        })
+    }
+});
+
+
+let lastSubstituteRecord = null as {
+    searchString: string;
+    replaceString: string;
+} | null;
+
+function doSubstitute(ctx: ICommandContext, range: {first: number, last: number}, searchString: string, replaceString: string, flags: string, count?: number) {
+    let replacePattern = new TextReplacePattern(replaceString);
+
+    let global = flags.indexOf('g') >= 0;
+
+    let matchCase = !configuration.ignoreCase;
+    if (searchString.startsWith('\\c')) {
+        matchCase = false;
+        searchString = searchString.substring(2);
+    }
+    else if (searchString.startsWith('\\C')) {
+        matchCase = true;
+        searchString = searchString.substring(2);
+    }
+    if (flags.indexOf('I') >= 0) {
+        matchCase = true;
+    }
+    else if (flags.indexOf('i') >= 0) {
+        matchCase = false;
+    }
+
+    if (count) {
+        range = {first: range.last, last: range.last + count - 1};
+    }
+
+    let edits: monaco.editor.IIdentifiedSingleEditOperation[];
+    if (global) {
+        let matches = ctx.model.findMatches(searchString, rangeFromLines(ctx, [range.first, range.last]), true, matchCase, null, true);
+        if (matches.length === 0) {
+            return;
+        }
+        edits = matches.map(m => (
+            {
+                range: m.range,
+                text: replacePattern.run(m.matches!)
+            }
+        ));
+    }
+    else {
+        edits = [];
+        for (let ln = range.first; ln <= range.last; ln++) {
+            let matches = ctx.model.findMatches(searchString, rangeFromLines(ctx, [ln, ln]), true, matchCase, null, true, 1);
+            if (matches.length !== 0) {
+                let m = matches[0];
+                edits.push({range: m.range, text: replacePattern.run(m.matches!)});
+            }
+        }
+    }
+    if (edits.length === 0) {
+        ctx.vimState.outputError('Pattern not found: ' + searchString);
+        return;
+    }
+    ctx.editor.pushUndoStop();
+    executeEdits(ctx, edits, () => ctx.position.get(range.last, '^'));
+    ctx.editor.pushUndoStop();
+    ctx.vimState.toNormal();
+}
+
+addExRangeCommand({
+    matcher: /^s(?:u|ub|ubs|ubst|ubsti|ubstit|ubstitu|ubstitut|ubstitute)?(?:\s*([a-zA-Z]*))?(?:\s*(\d+))?\s*$/,
+    handler(ctx, range, cap: string[]) {
+        if (!lastSubstituteRecord) {
+            ctx.vimState.outputError('No previous substitute regular expression');
+            return;
+        }
+        let {searchString, replaceString} = lastSubstituteRecord;
+        let flags = cap[1] || '';
+        let count = cap[2] ? parseInt(cap[2]) : undefined;
+        return doSubstitute(ctx, range, searchString, replaceString, flags, count);
+    }
+});
+
+addExRangeCommand({
+    matcher: /^s(?:u|ub|ubs|ubst|ubsti|ubstit|ubstitu|ubstitut|ubstitute)?\/([^\/\\]*(?:\\.[^\\\/]*)*)\/([^\/\\]*(?:\\.[^\\\/]*)*)(?:\/([a-zA-Z]*))?(?:\s*(\d+))?\s*$/,
+    handler(ctx, range, cap: string[]) {
+        let searchString = cap[1];
+        let replaceString = cap[2];
+        let flags = cap[3] || '';
+        let count = cap[4] ? parseInt(cap[4]) : undefined;
+        lastSubstituteRecord = { searchString, replaceString };
+        return doSubstitute(ctx, range, searchString, replaceString, flags, count);
+    }
+});

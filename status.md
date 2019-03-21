@@ -6,10 +6,8 @@
 
 __not supported__
 
-- Ex commands (work in progress)
 - Visual Block mode
 - Replace Mode
-- Marks
 - Macros
 
 ## Monaco Editor actions
@@ -120,6 +118,8 @@ __not supported__
 |   Status   |   Keys   |   Description   |
 |   -   |   -   |   -   |
 |   ✓   |   '', \`\`   |   To the position before the latest jump   |
+|   ✓   |   '<, \`<   |   To the first line or character of the last selected Visual area   |
+|   ✓   |   '>, \`>   |   To the last line or character of the last selected Visual area   |
 |   ✓   |   '{a-z}, `{a-z}   |   Jump to the mark {a-z} in the current buffer   |
 |   ✓   |   m',  m`   |   Set the previous context mark   |
 |   ✓   |   m{a-z}   |   Set mark {a-z} at cursor position   |
@@ -194,6 +194,8 @@ __not supported__
 |   ✓   |   \["x]d{motion}   |   Delete text that {motion} moves over   |
 |   ✓   |   \["x]dd   |   Delete [count] lines   |
 |   ✓   |   \["x]D   |   Delete the characters under the cursor until the end of the line and [count]-1 more lines   |
+|   ✓   |   :\[range]d\[elete] \[x]   |   Delete [range] lines [into register x]   |
+|   ✓   |   :\[range]d\[elete] \[x] {count}   |   Delete {count} lines, starting with [range] [into register x] |
 |   ✓   |  {Visual}\["x]x, {Visual}\["x], {Visual}\["x]<Del> |   Delete the highlighted text   |
 |   ✓   |   {Visual}\["x]X, {Visual}\["x]D   |   Delete the highlighted lines   |
 |   ✓   |   J   |   Join [count] lines, with a minimum of two lines   |
@@ -260,6 +262,8 @@ __not supported__
 |   ✓ ★   |   ={motion}   |   Filter {motion} lines. Note: base on "Format Selection" action    |
 |   ✓ ★   |   ==   |   Filter [count] lines like with ={motion}. Note: as above    |
 |   ✓ ★   |   {Visual}=   |   Filter the highlighted lines like with ={motion}. Note: as above    |
+|   ! ★   |   :\[range]s\[ubstitute]/{pattern}/{string}/\[flags] \[count]   |   For each line in [range] replace a match of {pattern} with {string}. Note: js Regex/ReplaceString; supproted flags "giI"     |
+|   ! ★   |   :\[range]s\[ubstitute] \[flags] \[count]   |   Repeat last :substitute with same search pattern and substitute string, but without the same flags. Note: as above     |
 
 
 ## copy-move

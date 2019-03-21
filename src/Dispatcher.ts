@@ -11,6 +11,7 @@ import { configuration } from "./configuration";
 import { ICommandContext, ICommand, ICommandArgs } from "./command";
 import * as monaco from "monaco-editor";
 import { ExternalInputWidget } from "./utils/externalInput";
+import { executeExCommand } from "./exCommand";
 
 export class GlobalState {
     lastCharMotion?: {
@@ -293,9 +294,9 @@ export class Dispatcher {
         }
     }
 
-    requestExternalInput(prefix: string, textChangedCallback: (text: string) => void): Promise<string | null> {
+    requestExternalInput(prefix: string, text: string, textChangedCallback: (text: string) => void): Promise<string | null> {
         if (this.eventSink && this.eventSink.onRequestExternalInput) {
-            return this.eventSink.onRequestExternalInput(this, prefix, textChangedCallback);
+            return this.eventSink.onRequestExternalInput(this, prefix, text, textChangedCallback);
         }
         else {
             return new Promise(resolve => {
@@ -310,7 +311,7 @@ export class Dispatcher {
                         resolve(null);
                     }
                 };
-                new ExternalInputWidget(this.editor, prefix, ev);
+                new ExternalInputWidget(this.editor, prefix, text, ev);
             });
         }
     }
@@ -362,6 +363,10 @@ export class Dispatcher {
             }
             return allHandled;
         }
+    }
+
+    executeExCommand(text: string) {
+        return executeExCommand(this.commandContext, text);
     }
 
     handleCursorChanged(e: monaco.editor.ICursorPositionChangedEvent) {

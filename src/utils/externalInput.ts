@@ -11,7 +11,7 @@ export class ExternalInputWidget implements monaco.editor.IOverlayWidget {
 
     private domNode?: HTMLElement
 
-    constructor(readonly editor: monaco.editor.ICodeEditor, readonly prefix: string, readonly events: Events) {
+    constructor(readonly editor: monaco.editor.ICodeEditor, readonly prefix: string, readonly text: string, readonly events: Events) {
         editor.addOverlayWidget(this);
     }
 
@@ -49,6 +49,9 @@ export class ExternalInputWidget implements monaco.editor.IOverlayWidget {
             </div>
             `;
             let input = node.querySelector('input')!;
+            if (this.text.length !== 0) {
+                input.value = this.text;
+            }
             input.addEventListener('keydown', e => {
                 if (e.key === 'Escape' || (e.key === 'Backspace' && input.value === '')) {
                     this.events.onCancel();

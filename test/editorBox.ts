@@ -102,6 +102,10 @@ class EditorBox {
         return r;
     }
 
+    async executeExCommand(text: string) {
+        return await this.dispatcher.executeExCommand(text);
+    }
+
     check(state: EditorState) {
         let idx = ++this.checkCount;
         if (state.text !== undefined) {
@@ -151,7 +155,7 @@ class Wrapper {
         this.groups[this.groups.length - 1].actions.push(f);
     }
 
-    next(what: string | EditorState & {input: string, skipKeyCheck?: boolean}) {
+    next(what: string | EditorState & ({input: string, skipKeyCheck?: boolean} | {ex: string})) {
         if (this.groups.length === 0) {
             throw new Error('TEST(...) is needed.')
         }
@@ -160,11 +164,17 @@ class Wrapper {
                 let r = await this.box.sendInput(what);
                 assert.isTrue(r, `Fail to match "${what}".`)
             }
-            else {
+            else if (what['input']) {
+                what = what as EditorState & {input: string, skipKeyCheck?: boolean};
                 let r = await this.box.sendInput(what.input);
                 if (what.skipKeyCheck !== true) {
                     assert.isTrue(r, `Fail to match "${what.input}".`)
                 }
+                this.box.check(what);
+            }
+            else {
+                what = what as EditorState & {ex: string};
+                await this.box.executeExCommand(what.ex);
                 this.box.check(what);
             }
         });

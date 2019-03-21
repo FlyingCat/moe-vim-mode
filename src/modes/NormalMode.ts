@@ -13,7 +13,6 @@ import { TextSearch } from "../text/search";
 import { CommandFunction, ICommandContext, ICommandArgs, createCommand, executeCommand } from "../command";
 import * as monaco from "monaco-editor";
 import { actionsPattern } from "../actions";
-import { executeExCommand } from "../exCommand";
 import { TextMark } from "../text/mark";
 
 const escKey = keyUtils.pack(KeyCode.Escape);
@@ -139,14 +138,6 @@ export const commands: {[k: string]: CommandFunction} = {
     '?': (ctx, mst) => {
         searchPattern(ctx, mst, 'backward', '?');
     },
-    ':': (ctx, mst) => {
-        ctx.vimState.requestExternalInput(':', () => {}).then(text => {
-            if (!text) {
-                return;
-            }
-            executeExCommand(ctx, text);
-        });
-    },
 };
 
 function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'forward' | 'backward', prefix: string) {
@@ -214,7 +205,7 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
             restoreEditorView();
         }
     }
-    ctx.vimState.requestExternalInput(prefix, onTextChange).then(searchString => {
+    ctx.vimState.requestExternalInput(prefix, '', onTextChange).then(searchString => {
         TextSearch.isInc = false;
         if (!searchString) {
             restoreEditorView(true);

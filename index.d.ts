@@ -33,7 +33,7 @@ export interface IEventSink {
     onCommandBeep?(sender: IDispatcher): void;
     onCommandOuput?(sender: IDispatcher, type: 'info' | 'error', message: string): void;
     onModeChanged?(sender: IDispatcher, mode: ModeName, displayName: string): void;
-    onRequestExternalInput?(sender: IDispatcher, prefix: string, textChangedCallback: (text: string) => void): Promise<string | null>;
+    onRequestExternalInput?(sender: IDispatcher, prefix: string, text: string, textChangedCallback: (text: string) => void): Promise<string | null>;
 }
 
 

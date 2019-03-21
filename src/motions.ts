@@ -397,6 +397,32 @@ const motions: MotionDict = {
     "``": (ctx, pos, count) => {
         return wrapPosition(TextMark.get(ctx, 'LAST'), {isJump: true});
     },
+    "'<": (ctx, pos, count) => {
+        let mark = TextMark.get(ctx, '<');
+        if (mark) {
+            return {
+                position: ctx.position.get(mark.lineNumber, '^'),
+                isJump: true,
+            };
+        }
+        return false;
+    },
+    "`<": (ctx, pos, count) => {
+        return wrapPosition(TextMark.get(ctx, '<'), {isJump: true});
+    },
+    "'>": (ctx, pos, count) => {
+        let mark = TextMark.get(ctx, '>');
+        if (mark) {
+            return {
+                position: ctx.position.get(mark.lineNumber, '^'),
+                isJump: true,
+            };
+        }
+        return false;
+    },
+    "`>": (ctx, pos, count) => {
+        return wrapPosition(TextMark.get(ctx, '>'), {isJump: true});
+    },
     //#endregion
 }
 
