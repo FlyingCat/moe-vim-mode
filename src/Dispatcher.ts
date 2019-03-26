@@ -195,27 +195,27 @@ export class Dispatcher {
         this.onModeChanged();
     }
 
-    toVisual(selection?: monaco.Selection) {
+    toVisual(selections?: monaco.Selection[]) {
         if (this.currentModeName === 'Visual') {
             return;
         }
         if (this.currentMode) {
             this.currentMode.leave();
         }
-        this.visualMode.enter(selection);
+        this.visualMode.enter(selections);
         this.currentModeName = 'Visual';
         this.currentMode = this.visualMode;
         this.onModeChanged();
     }
 
-    toVisualLine(selection?: {first: number; last: number}) {
+    toVisualLine(selections?: {first: number; last: number}[]) {
         if (this.currentModeName === 'VisualLine') {
             return;
         }
         if (this.currentMode) {
             this.currentMode.leave();
         }
-        this.visualLineMode.enter(selection);
+        this.visualLineMode.enter(selections);
         this.currentModeName = 'VisualLine';
         this.currentMode = this.visualLineMode;
         this.onModeChanged();

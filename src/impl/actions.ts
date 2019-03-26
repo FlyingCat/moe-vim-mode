@@ -6,6 +6,7 @@ import * as P from "../matching/pattern";
 import { PositionLiveType } from "../text/position";
 import { executeExCommand } from "../exCommand";
 import { setMarkByName } from "./sp/mark";
+import { mergePositions, mergeSelections, mergeLineRanges, mergeLineSelections } from "../utils/helper";
 
 //#region Normal Mode
 registerCommand('i', 'n', function (ctx, args) {
@@ -13,48 +14,80 @@ registerCommand('i', 'n', function (ctx, args) {
     ctx.vimState.toInsert({ command: this, args }, 'text');
 });
 registerCommand('I', 'n', function (ctx, args) {
-    let cursor = ctx.editor.getPosition()!;
-    let pos = ctx.position.get(cursor.lineNumber, '^');
-    ctx.editor.setPosition(pos);
-    ctx.editor.revealPosition(pos);
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
+    let cursors = selections.map(x => {
+        let pos = ctx.position.get(x.getPosition().lineNumber, '^');
+        return monaco.Selection.fromPositions(pos);
+    });
+    ctx.editor.setSelections(cursors);
+    ctx.editor.revealRange(cursors[0]);
     ctx.vimState.toInsert({ command: this, args }, 'text');
 });
 registerCommand('a', 'n', function (ctx, args) {
-    let cursor = ctx.editor.getPosition()!;
-    let pos = ctx.position.get().shouldWrap(false).move(1);
-    ctx.editor.setPosition(pos);
-    ctx.editor.revealPosition(pos);
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
+    let cursors = selections.map(x => {
+        let pos = ctx.position.get(x.getPosition()).shouldWrap(false).move(1);
+        return monaco.Selection.fromPositions(pos);
+    })
+    ctx.editor.setSelections(cursors);
+    ctx.editor.revealRange(cursors[0]);
     ctx.vimState.toInsert({ command: this, args }, 'text');
 });
 registerCommand('A', 'n', function (ctx, args) {
-    let cursor = ctx.editor.getPosition()!;
-    let pos = ctx.position.get(cursor.lineNumber, 'eol');
-    ctx.editor.setPosition(pos);
-    ctx.editor.revealPosition(pos);
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
+    let curosrs = selections.map(x => {
+        let pos = ctx.position.get(x.getPosition().lineNumber, 'eol');
+        return monaco.Selection.fromPositions(pos);
+    });
+    ctx.editor.setSelections(curosrs);
+    ctx.editor.revealRange(curosrs[0]);
     ctx.vimState.desiredColumn = 'eol';
     ctx.vimState.toInsert({ command: this, args }, 'text');
 });
 registerCommand('o', 'n', function (ctx, args) {
     ctx.editor.getAction('editor.action.insertLineAfter').run();
-    let cursor = ctx.editor.getPosition()!;
     ctx.vimState.toInsert({ command: this, args }, 'command');
 });
 registerCommand('O', 'n', function (ctx, args) {
     ctx.editor.getAction('editor.action.insertLineBefore').run();
-    let cursor = ctx.editor.getPosition()!;
     ctx.vimState.toInsert({ command: this, args }, 'command')
 });
 registerCommand('v', 'n', (ctx, args) => {
+    let cursors =  ctx.editor.getSelections();
+    if (!cursors) {
+        return;
+    }
     let count = args.count || 0;
-    let pos = ctx.position.get();
-    let end = pos.clone().shouldWrap(false).move(count);
-    ctx.vimState.toVisual(monaco.Selection.fromPositions(pos, end));
+    let selections = cursors.map(x => {
+        let pos = ctx.position.get(x.getPosition());
+        let end = pos.clone().shouldWrap(false).move(count);
+        return monaco.Selection.fromPositions(pos, end);
+    });
+    selections = mergeSelections(selections);
+    ctx.vimState.toVisual(selections);
 });
 registerCommand('V', 'n', (ctx, args) => {
+    let cursors =  ctx.editor.getSelections();
+    if (!cursors) {
+        return;
+    }
     let count = args.count || 1;
-    let first = ctx.editor.getPosition()!.lineNumber;
-    let last = first + count - 1;
-    ctx.vimState.toVisualLine({ first, last });
+    let ranges = cursors.map(x => {
+        let first = x.getPosition().lineNumber;
+        let last = first + count - 1;
+        return { first, last };
+    });
+    ranges = mergeLineRanges(ranges);
+    ctx.vimState.toVisualLine(ranges);
 });
 registerCommand('gv', 'n', (ctx, args) => {
     let previous = ctx.vimState.previousVisual;
@@ -64,48 +97,48 @@ registerCommand('gv', 'n', (ctx, args) => {
     else if (previous.kind === 'char') {
         let start = ctx.position.get(previous.start);
         let end = ctx.position.get(previous.end);
-        ctx.vimState.toVisual(monaco.Selection.fromPositions(start, end));
+        ctx.vimState.toVisual([monaco.Selection.fromPositions(start, end)]);
     }
     else {
-        ctx.vimState.toVisualLine(previous);
+        ctx.vimState.toVisualLine([previous]);
     }
 });
 registerCommand('.', 'n', (ctx, mst) => {
     recorder.repeatLast(ctx, mst.count);
 });
-registerCommand('gd', 'n', (ctx, mst) => {
-    ctx.editor.trigger('vim', 'editor.action.goToDeclaration', null);
-});
-registerCommand('gh', 'n', (ctx, mst) => {
-    // BUG: once show context menu, then this never works
-    ctx.editor.trigger('vim', 'editor.action.showHover', null);
-    // let action = ctx.editor.getAction('editor.action.showHover');
-    // if (action) {
-    //     return action.run();
-    // }
-});
-registerCommand('gl', 'n', (ctx, mst) => {
-    ctx.editor.trigger('vim', 'editor.action.wordHighlight.trigger', null);
-});
 
 registerCommand(P.holders.motion, '~n', (ctx, mst) => {
-    ctx.vimState.isMovingCursorByMotion = true;
-    let result = applyMotion('Move', ctx, mst);
-    let cursorPos = ctx.position.get();
-    if (result) {
-        let pos = ctx.position.get(result.to.lineNumber, result.to.column).soft();
-        if (result.isJump && !monaco.Position.equals(cursorPos, pos)) {
-            setMarkByName(ctx, "'", cursorPos);
-        }
-        ctx.editor.setPosition(pos);
-        ctx.editor.revealPosition(pos);
-        if (result.keepPrevDesiredColumn !== true) {
-            ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
-        }
+    const selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
     }
-    else {
+    ctx.vimState.isMovingCursorByMotion = true;
+    let failedCount = 0;
+    let primaryPos = ctx.editor.getPosition()!;
+    let cursors = selections.map((x, i) => {
+        let result = applyMotion('Move', ctx, mst, x.getPosition());
+        if (result) {
+            let pos = ctx.position.get(result.to.lineNumber, result.to.column).soft();
+            if (i === 0) {
+                if (result.isJump && !monaco.Position.equals(primaryPos, pos)) {
+                    setMarkByName(ctx, "'", primaryPos);
+                }
+                if (result.keepPrevDesiredColumn !== true) {
+                    ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+                }
+            }
+            return pos;
+        }
+        else {
+            failedCount++;
+            return x.getPosition();
+        }
+    });
+    if (failedCount === cursors.length) {
         ctx.vimState.beep();
     }
+    ctx.editor.setSelections(mergePositions(cursors).map(x => monaco.Selection.fromPositions(x, x)));
+    ctx.editor.revealPosition(cursors[0]);
     ctx.vimState.isMovingCursorByMotion = false;
 });
 //#endregion
@@ -113,57 +146,102 @@ registerCommand(P.holders.motion, '~n', (ctx, mst) => {
 
 //#region Visual Mode
 registerCommand(P.holders.motion, '~V', (ctx, mst) => {
-    ctx.vimState.isMovingCursorByMotion = true;
-    let sel = ctx.editor.getSelection()!;
-    let start: monaco.IPosition = {lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn};
-    let cursor: monaco.IPosition = {lineNumber: sel.positionLineNumber, column: sel.positionColumn};
-    let result = applyMotion('Select', ctx, mst, cursor);
-    if (!result) {
-        ctx.vimState.beep();
+    const selections = ctx.editor.getSelections();
+    if (!selections) {
         return;
     }
-    let pos = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
-    if (result.keepPrevDesiredColumn !== true) {
-        ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+    ctx.vimState.isMovingCursorByMotion = true;
+    let failedCount = 0;
+    let primaryPos = ctx.editor.getPosition()!;
+    let newSelections = selections.map((x, i) => {
+        let selectionStart = new monaco.Position(x.selectionStartLineNumber, x.selectionStartColumn);
+        let result = applyMotion('Select', ctx, mst, x.getPosition());
+        if (result) {
+            let pos = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
+            if (i === 0) {
+                if (result.isJump && !monaco.Position.equals(primaryPos, pos)) {
+                    setMarkByName(ctx, "'", primaryPos);
+                }
+                if (result.keepPrevDesiredColumn !== true) {
+                    ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+                }
+                ctx.vimState.previousVisual = {kind: 'char', start: selectionStart, end: pos};
+            }
+            return monaco.Selection.fromPositions(selectionStart, pos);
+        }
+        else {
+            failedCount++;
+            return x;
+        }
+    });
+    if (failedCount === selections.length) {
+        ctx.vimState.beep();
     }
-    ctx.vimState.previousVisual = {kind: 'char', start, end: pos};
-    let newSel = monaco.Selection.fromPositions(start, pos);
-    ctx.editor.setSelection(newSel);
-    ctx.editor.revealPosition(pos);
+    else {
+        // newSelections = mergeSelections(selections);
+        ctx.editor.setSelections(newSelections);
+    }
+    ctx.editor.revealPosition(newSelections[0].getPosition());
     ctx.vimState.isMovingCursorByMotion = false;
 });
 
 registerCommand(P.holders.TextObject, 'V', (ctx, mst) => {
-    ctx.vimState.isMovingCursorByMotion = true;
-    let sel = ctx.editor.getSelection()!;
-    let cursor: monaco.IPosition = {lineNumber: sel.positionLineNumber, column: sel.positionColumn};
-    let result = applyMotion('Select', ctx, mst, cursor);
-    if (!result) {
-        ctx.vimState.beep();
+    const selections = ctx.editor.getSelections();
+    if (!selections) {
         return;
     }
-    let pos = ctx.position.get(result.to).move(1);
-    if (result.keepPrevDesiredColumn !== true) {
-        ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+    ctx.vimState.isMovingCursorByMotion = true;
+    let failedCount = 0;
+    let newSelections = selections.map((x, i) => {
+        let result = applyMotion('Select', ctx, mst, x.getPosition());
+        if (result) {
+            let pos = ctx.position.get(result.to).move(1);
+            if (result.keepPrevDesiredColumn !== true) {
+                ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+            }
+            let tar = monaco.Range.fromPositions(result.from, pos);
+            if (monaco.Range.areIntersectingOrTouching(x, tar)) {
+                tar = monaco.Range.plusRange(x, tar);
+            }
+            if (i === 0) {
+                if (result.keepPrevDesiredColumn !== true) {
+                    ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+                }
+                ctx.vimState.previousVisual = {kind: 'char', start: tar.getStartPosition(), end: tar.getEndPosition()};
+            }
+            return monaco.Selection.fromPositions(tar.getStartPosition(), tar.getEndPosition());
+        }
+        else {
+            failedCount++;
+            return x;
+        }
+    });
+    if (failedCount === selections.length) {
+        ctx.vimState.beep();
     }
-    let tar = monaco.Range.fromPositions(result.from, pos);
-    if (monaco.Range.areIntersectingOrTouching(sel, tar)) {
-        tar = monaco.Range.plusRange(sel, tar);
+    else {
+        // newSelections = mergeSelections(selections);
+        ctx.editor.setSelections(newSelections);
     }
-    ctx.vimState.previousVisual = {kind: 'char', start: tar.getStartPosition(), end: tar.getEndPosition()};
-    ctx.editor.setSelection(tar);
-    ctx.editor.revealPosition(pos);
+    ctx.editor.revealPosition(newSelections[0].getPosition());
     ctx.vimState.isMovingCursorByMotion = false;
 });
 
 registerCommand('o', 'V', (ctx, mst) => {
-    let sel = ctx.editor.getSelection()!;
-    let start = {lineNumber: sel.positionLineNumber, column: sel.positionColumn};
-    let end = {lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn};
-    let newSel = monaco.Selection.fromPositions(start, end);
-    ctx.vimState.previousVisual = {kind: 'char', start, end};
-    ctx.editor.setSelection(newSel);
-    ctx.editor.revealRange(newSel);
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
+    let newSelections = selections.map((sel, index) => {
+        let start = {lineNumber: sel.positionLineNumber, column: sel.positionColumn};
+        let end = {lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn};
+        if (index === 0) {
+            ctx.vimState.previousVisual = {kind: 'char', start, end};
+        }
+        return monaco.Selection.fromPositions(start, end);
+    });
+    ctx.editor.setSelections(newSelections);
+    ctx.editor.revealRange(newSelections[0]);
 });
 
 registerCommand('<ESC>, v', 'V', (ctx, mst) => {
@@ -171,67 +249,89 @@ registerCommand('<ESC>, v', 'V', (ctx, mst) => {
 });
 
 registerCommand('V', 'V', (ctx, mst) => {
-    let sel = ctx.editor.getSelection()!;
-    ctx.vimState.toVisualLine({first: sel.selectionStartLineNumber, last: sel.positionLineNumber});
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
+    ctx.vimState.toVisualLine(selections.map(x => ({first: x.selectionStartLineNumber, last: x.positionLineNumber})));
 });
 //#endregion
 
 
 //#region VisualLine Mode
 registerCommand(P.holders.motion, '~L', (ctx, mst) => {
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
+        return;
+    }
     ctx.vimState.isMovingCursorByMotion = true;
-    let sel = ctx.editor.getSelection();
-    if (!sel) {
-        return;
-    }
-    let start: monaco.IPosition = {lineNumber: sel.selectionStartLineNumber, column: sel.selectionStartColumn};
-    let cursor: monaco.IPosition = {lineNumber: sel.positionLineNumber, column: sel.positionColumn};
-    let result = applyMotion('Select', ctx, mst, cursor);
-    if (!result) {
+    let failedCount = 0;
+    let newLineSelections = selections.map((x, i) => {
+        let start: monaco.IPosition = {lineNumber: x.selectionStartLineNumber, column: x.selectionStartColumn};
+        let cursor: monaco.IPosition = {lineNumber: x.positionLineNumber, column: x.positionColumn};
+        let result = applyMotion('Move', ctx, mst, cursor);
+        if (result) {
+            let target = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
+            if (result.keepPrevDesiredColumn !== true) {
+                ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+            }
+            return {start: start.lineNumber, target: target.lineNumber};
+        }
+        else {
+            failedCount++;
+            return {start: start.lineNumber, target: cursor.lineNumber};
+        }
+    });
+    if (failedCount === selections.length) {
         ctx.vimState.beep();
-        return;
-    }
-    let target = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
-    if (result.keepPrevDesiredColumn !== true) {
-        ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
-    }
-    let e: monaco.IPosition;
-    if (start.lineNumber <= target.lineNumber) {
-        let s = ctx.position.get(start.lineNumber, 1);
-        e = ctx.position.get(target.lineNumber, 'eol');
-        ctx.editor.setSelection(monaco.Selection.fromPositions(s, e));
     }
     else {
-        let s = ctx.position.get(start.lineNumber, 'eol');
-        e = ctx.position.get(target.lineNumber, 1);
-        ctx.editor.setSelection(monaco.Selection.fromPositions(s, e));
+        newLineSelections = mergeLineSelections(newLineSelections);
+        selections = newLineSelections.map(x => {
+            let e: monaco.IPosition;
+            if (x.start <= x.target) {
+                let s = ctx.position.get(x.start, 1);
+                e = ctx.position.get(x.target, 'eol');
+                return monaco.Selection.fromPositions(s, e);
+            }
+            else {
+                let s = ctx.position.get(x.start, 'eol');
+                e = ctx.position.get(x.target, 1);
+                return monaco.Selection.fromPositions(s, e);
+            }
+        });
+        ctx.editor.setSelections(selections);
     }
-    ctx.editor.revealPosition(e);
+    ctx.editor.revealRange(selections[0]);
     ctx.vimState.isMovingCursorByMotion = false;
-    ctx.vimState.previousVisual = {kind: 'line', first: start.lineNumber, last: target.lineNumber};
+    ctx.vimState.previousVisual = {kind: 'line', first: selections[0].selectionStartLineNumber, last: selections[0].positionLineNumber};
 });
 
 registerCommand('o', 'L', (ctx, mst) => {
-    let sel = ctx.editor.getSelection();
-    if (!sel) {
+    let selections = ctx.editor.getSelections();
+    if (!selections) {
         return;
     }
-    let first = sel.positionLineNumber;
-    let last = sel.selectionStartLineNumber;
-    let start: monaco.IPosition;
-    let end: monaco.IPosition;
-    if (first <= last) {
-        start = ctx.position.get(first, 1);
-        end = ctx.position.get(last, 'eol');
-    }
-    else {
-        start = ctx.position.get(first, 'eol');
-        end = ctx.position.get(last, 1);
-    }
-    ctx.vimState.previousVisual = {kind: 'line', first: start.lineNumber, last: end.lineNumber};
-    let newSel = monaco.Selection.fromPositions(start, end);
-    ctx.editor.setSelection(newSel);
-    ctx.editor.revealRange(newSel);
+    let newSelections = selections.map((sel, index) => {
+        let first = sel.positionLineNumber;
+        let last = sel.selectionStartLineNumber;
+        let start: monaco.IPosition;
+        let end: monaco.IPosition;
+        if (first <= last) {
+            start = ctx.position.get(first, 1);
+            end = ctx.position.get(last, 'eol');
+        }
+        else {
+            start = ctx.position.get(first, 'eol');
+            end = ctx.position.get(last, 1);
+        }
+        if (index === 0) {
+            ctx.vimState.previousVisual = {kind: 'line', first: start.lineNumber, last: end.lineNumber};
+        }
+        return monaco.Selection.fromPositions(start, end);
+    });
+    ctx.editor.setSelections(newSelections);
+    ctx.editor.revealRange(newSelections[0]);
 });
 
 registerCommand('<ESC>, V', 'L', (ctx, mst) => {
@@ -239,7 +339,7 @@ registerCommand('<ESC>, V', 'L', (ctx, mst) => {
 });
 
 registerCommand('v', 'L', (ctx, mst) => {
-    let sel = ctx.editor.getSelection();
+    let sel = ctx.editor.getSelections();
     if (!sel) {
         return;
     }
@@ -387,6 +487,28 @@ for (let k in commands) {
     registerCommand(k, 'nv', commands[k]);
 }
 //#endregion
+
+registerCommand('gd', 'n', (ctx, mst) => {
+    ctx.editor.trigger('vim', 'editor.action.goToDeclaration', null);
+});
+registerCommand('gh', 'n', (ctx, mst) => {
+    // BUG: once show context menu, then this never works
+    ctx.editor.trigger('vim', 'editor.action.showHover', null);
+    // let action = ctx.editor.getAction('editor.action.showHover');
+    // if (action) {
+    //     return action.run();
+    // }
+});
+registerCommand('gl', 'n', (ctx, mst) => {
+    ctx.editor.trigger('vim', 'editor.action.wordHighlight.trigger', null);
+});
+registerCommand('gb', 'nv', (ctx, mst) => {
+    ctx.editor.trigger('vim', 'editor.action.addSelectionToNextFindMatch', null);
+    let selections = ctx.editor.getSelections();
+    if (selections && selections.every(x => !x.isEmpty())) {
+        ctx.vimState.toVisual();
+    }
+});
 
 registerCommand(':', 'nv', (ctx, mst) => {
     let text = '';

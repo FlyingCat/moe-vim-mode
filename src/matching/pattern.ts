@@ -1,4 +1,3 @@
-import { SeqMap } from "./seqMap";
 import { IMotion, ICommand } from "../boot/base";
 
 export interface IMatchCapture {

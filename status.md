@@ -17,6 +17,7 @@ __not supported__
 |   ✓   |   gd   |   go to declaration   |
 |   ✓   |   gh   |   show hover   |
 |   ✓   |   gl   |   trigger symbol highlight   |
+|   ✓   |   gb   |   add selection to next find match   |
 
 
 ## left-right-motions

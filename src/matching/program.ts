@@ -467,7 +467,7 @@ export class Program {
     }
 }
 
-export enum OpCode {
+const enum OpCode {
     End,
     BeginCall,
     EndCall,

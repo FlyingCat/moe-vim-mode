@@ -71,4 +71,10 @@ FROM({
     .next({input: 'f(', cursor: [1, 6]})
     .next({input: '2;', cursor: [1, 16]})
     .next({input: '2,', cursor: [1, 6]})
+    .cursor(1, 1)
+    .next({input: 't(', cursor: [1, 5]})
+    .next({input: ';', cursor: [1, 10]})
+    .next({input: '2;', cursor: [1, 15]})
+    .next({input: '2,', cursor: [1, 7]})
+    .next({input: ',', cursor: [1, 2]})
 .RUN();

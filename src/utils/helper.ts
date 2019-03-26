@@ -17,6 +17,116 @@ export function rangeFromLines(ctx: ICommandContext, lines: [number, number]) {
     return monaco.Range.fromPositions(start, end);
 }
 
+export function mergePositions(positions: ReadonlyArray<monaco.IPosition>): monaco.IPosition[] {
+    if (positions.length === 0) {
+        return [];
+    }
+    let list = positions.map(x => ({lineNumber: x.lineNumber, column: x.column}));
+    for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; ) {
+            if (monaco.Position.equals(list[i], list[j])) {
+                list.splice(j, 1);
+            }
+            else {
+                j++;
+            }
+        }
+    }
+    return list;
+}
+
+export function mergeRanges(ranges: ReadonlyArray<monaco.IRange>): monaco.Range[] {
+    if (ranges.length === 0) {
+        return [];
+    }
+    let list = ranges.map(x => monaco.Range.lift(x));
+    for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; ) {
+            let r = monaco.Range.intersectRanges(list[i], list[j]);
+            if (r) {
+                list[i] = monaco.Range.plusRange(list[i], list[j]);
+                list.splice(j, 1);
+            }
+            else {
+                j++;
+            }
+        }
+    }
+    return list;
+}
+
+type LineRange = { first: number; last: number; }
+export function mergeLineRanges(ranges: ReadonlyArray<LineRange>, touched?: boolean): LineRange[] {
+    if (ranges.length === 0) {
+        return [];
+    }
+    let list = Array.from(ranges);
+    const delta = touched ? 1 : 0;
+    for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; ) {
+            if (list[j].first <= list[i].last + delta && list[j].last >= list[i].first - delta) {
+                let first = Math.min(list[i].first, list[j].first);
+                let last = Math.max(list[i].last, list[j].last);
+                list[i] = {first, last};
+                list.splice(j, 1);
+            }
+            else {
+                j++;
+            }
+        }
+    }
+    return list;
+}
+
+type LineSelection = { start: number; target: number; }
+export function mergeLineSelections(selections: ReadonlyArray<LineSelection>): LineSelection[] {
+    let list = selections.map(x => {
+        let inverse = x.target < x.start;
+        return {
+            inverse,
+            first: inverse ? x.target : x.start,
+            last: inverse ? x.start : x.target,
+            get start() { return this.inverse ? this.last : this.first},
+            get target() { return this.inverse ? this.first : this.last},
+        }
+    });
+    for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; ) {
+            if (list[j].first - 1 <= list[i].last && list[j].last + 1 >= list[i].first) {
+                list[i].first = Math.min(list[i].first, list[j].first);
+                list[i].last = Math.max(list[i].last, list[j].last);
+                list.splice(j, 1);
+            }
+            else {
+                j++;
+            }
+        }
+    }
+    return list;
+}
+
+export function mergeSelections(selections: ReadonlyArray<monaco.Selection>): monaco.Selection[] {
+    if (selections.length === 0) {
+        return [];
+    }
+    let list = Array.from(selections);
+    for (let i = 0; i < list.length; i++) {
+        let direction = list[i].getDirection();
+        for (let j = i + 1; j < list.length; ) {
+            let r = monaco.Range.intersectRanges(list[i], list[j]);
+            if (r) {
+                let range = monaco.Range.plusRange(list[i], list[j]);
+                list[i] = monaco.Selection.createWithDirection(range.startLineNumber, range.startColumn, range.endLineNumber, range.endColumn, direction);
+                list.splice(j, 1);
+            }
+            else {
+                j++;
+            }
+        }
+    }
+    return list;
+}
+
 export function executeEdits(ctx: ICommandContext, edits: monaco.editor.IIdentifiedSingleEditOperation | monaco.editor.IIdentifiedSingleEditOperation[], position: () => monaco.IPosition) {
     if (!Array.isArray(edits)) {
         edits = [edits];

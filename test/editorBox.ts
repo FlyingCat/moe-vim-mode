@@ -8,6 +8,7 @@ interface EditorState {
     line?: [number, string];
     mode?: ModeName;
     cursor?: [number, number];
+    cursors?: [number, number][];
     selection?: [number, number, number, number];
 }
 
@@ -40,6 +41,13 @@ function toTuple(value: {}) {
     }
 }
 
+function toTupleArray(value: monaco.Selection[]): [number, number][] {
+    if (!value.every(x => x.isEmpty())) {
+        throw new Error('should be all empty selections');
+    }
+    return value.map(x => toTuple(x.getPosition()));
+}
+
 class EditorBox {
     static nextId  = 1;
 
@@ -67,10 +75,13 @@ class EditorBox {
         this.dispatcher = Dispatcher.create(this.editor);
     }
 
-    static async create(text: string, cursor?: [number, number], selection?: [number, number, number, number], mode?: ModeName) {
+    static async create(text: string, cursor?: [number, number], cursors?: [number, number][], selection?: [number, number, number, number], mode?: ModeName) {
         let instance = new EditorBox(text);
         if (cursor) {
             instance.editor.setPosition(toPositon(cursor));
+        }
+        if (cursors) {
+            instance.editor.setSelections(cursors.map(x => monaco.Selection.fromPositions(toPositon(x))));
         }
         if (selection) {
             instance.editor.setSelection(toSelction(selection));
@@ -116,6 +127,9 @@ class EditorBox {
         }
         if (state.cursor !== undefined) {
             assert.deepEqual(toTuple(this.editor.getPosition()!), state.cursor, `#${idx}:cursor`);
+        }
+        if (state.cursors !== undefined) {
+            assert.deepEqual(toTupleArray(this.editor.getSelections()!), state.cursors, `#${idx}:cursors`);
         }
         if (state.selection !== undefined) {
             assert.deepEqual(toTuple(this.editor.getSelection()!), state.selection, `#${idx}:selection`);
@@ -188,6 +202,13 @@ class Wrapper {
         return this;
     }
 
+    cursors(...value: [number, number][]) {
+        this.pushAction(async () => {
+            this.box.editor.setSelections(value.map(x => monaco.Selection.fromPositions(toPositon(x))));
+        });
+        return this;
+    }
+
     text(s: string) {
         this.pushAction(async () => {
             this.box.editor.setValue(s);
@@ -216,9 +237,10 @@ class Wrapper {
             before: async () => {
                 let text = patch && patch.text ? getText(patch) : getText(this.state);
                 let cursor = patch && patch.cursor ? patch.cursor : this.state.cursor;
+                let cursors = patch && patch.cursors ? patch.cursors : this.state.cursors;
                 let selection = patch && patch.selection ? patch.selection : this.state.selection;
                 let mode = patch && patch.mode ? patch.mode : this.state.mode;
-                this._box = await EditorBox.create(text, cursor, selection, mode);
+                this._box = await EditorBox.create(text, cursor, cursors, selection, mode);
             },
         });
         return this;

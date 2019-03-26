@@ -4,9 +4,9 @@ import { registerCommand, registerContextDataFactory } from "../../boot/registry
 import { TextPositionFactory } from "../../text/position";
 
 type HistoryPatch = {
-    beforeCursor?: monaco.Position;
+    beforeCursor?: monaco.IPosition[];
     beforeVersionId: number;
-    afterCursor?: monaco.Position;
+    afterCursor?: monaco.IPosition[];
     afterVersionId: number;
 }
 
@@ -19,13 +19,13 @@ class HistoryModel {
     dispose() {
     }
 
-    addHistoryPatch(beforeVersionId: number, afterVersionId: number, beforeCursor?: monaco.IPosition, afterCursor?: monaco.IPosition) {
+    addHistoryPatch(beforeVersionId: number, afterVersionId: number, beforeCursor?: monaco.IPosition[], afterCursor?: monaco.IPosition[]) {
         let item: HistoryPatch = {beforeVersionId, afterVersionId};
         if (beforeCursor) {
-            item.beforeCursor = monaco.Position.lift(beforeCursor);
+            item.beforeCursor = beforeCursor;
         }
         if (afterCursor) {
-            item.afterCursor = monaco.Position.lift(afterCursor);
+            item.afterCursor = afterCursor;
         }
         this.historyPatches.set(beforeVersionId, item);
         this.historyPatches.set(afterVersionId, item);
@@ -45,7 +45,7 @@ class HistoryModel {
                 versionId = vid;
             }
             if (item.beforeCursor) {
-                this.editor.setPosition(this.position.soften(item.beforeCursor));
+                this.editor.setSelections(item.beforeCursor.map(x => this.position.soften(x).toSelection()));
             }
             return versionId;
         }
@@ -70,7 +70,7 @@ class HistoryModel {
                 versionId = vid;
             }
             if (versionId === item.afterVersionId && item.afterCursor) {
-                this.editor.setPosition(this.position.soften(item.afterCursor));
+                this.editor.setSelections(item.afterCursor.map(x => this.position.soften(x).toSelection()));
             }
             return versionId;
         }
@@ -83,7 +83,7 @@ class HistoryModel {
 
 registerContextDataFactory('history', d => new HistoryModel(d.editor, d.commandContext.position));
 
-export function addHistoryPatch(ctx: ICommandContext, beforeVersionId: number, afterVersionId: number, beforeCursor?: monaco.IPosition, afterCursor?: monaco.IPosition) {
+export function addHistoryPatch(ctx: ICommandContext, beforeVersionId: number, afterVersionId: number, beforeCursor?: monaco.IPosition[], afterCursor?: monaco.IPosition[]) {
     let historyModel = ctx.vimState.getContextData<HistoryModel>('history');
     historyModel.addHistoryPatch(beforeVersionId, afterVersionId, beforeCursor, afterCursor);
 }
@@ -103,10 +103,9 @@ registerCommand('u', 'n', (ctx, mst) => {
         }
         n--;
     }
-    let sel = ctx.editor.getSelection();
-    if (sel && !sel.isEmpty()) {
-        let pos = ctx.position.get(sel.positionLineNumber, sel.positionColumn).soft();
-        ctx.editor.setPosition(pos);
+    let selections = ctx.editor.getSelections();
+    if (selections) {
+        ctx.editor.setSelections(selections.map(x => ctx.position.soften(x.getPosition()).toSelection()));
     }
 });
 

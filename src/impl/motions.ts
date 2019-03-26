@@ -25,7 +25,8 @@ export const spMotion: {[k in 'left' | 'right' | 'EOL' | 'word' | 'fullWord' | '
     }},
     EOL: { inclusive: true, desiredColumnAtEol: true, run(ctx, pos, count, source) {
         // vim doc: In Visual mode the cursor goes to just after the last character in the line.
-        let position = ctx.position.get(pos.lineNumber + count - 1, source === 'Select' ? 'eol' : '$');
+        // let position = ctx.position.get(pos.lineNumber + count - 1, source === 'Select' ? 'eol' : '$');
+        let position = ctx.position.get(pos.lineNumber + count - 1, '$');
         return position;
     }},
     word: { run(ctx, pos, count, source) {
@@ -238,12 +239,8 @@ function oppositeDirection(k: CharMotionKind): CharMotionKind {
     return opposite[k];
 }
 
-const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPosition, count: number, ch: string) => monaco.IPosition | null} = {
+const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPosition, count: number, ch: string, repeatLast?: boolean) => monaco.IPosition | null} = {
     f(ctx, pos, count, ch) {
-        lastCharMotion = {
-            kind: 'f',
-            char: ch,
-        }
         let lineNumber = pos.lineNumber;
         let column = pos.column;
         let text = ctx.model.getLineContent(lineNumber);
@@ -262,10 +259,6 @@ const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPo
         return {lineNumber, column};
     },
     F(ctx, pos, count, ch) {
-        lastCharMotion = {
-            kind: 'F',
-            char: ch,
-        }
         let lineNumber = pos.lineNumber;
         let column = pos.column;
         let text = ctx.model.getLineContent(lineNumber);
@@ -283,11 +276,7 @@ const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPo
         column = index + 1;
         return {lineNumber, column};
     },
-    t(ctx, pos, count, ch) {
-        lastCharMotion = {
-            kind: 't',
-            char: ch,
-        }
+    t(ctx, pos, count, ch, repeatLast) {
         let lineNumber = pos.lineNumber;
         let column = pos.column;
         let text = ctx.model.getLineContent(lineNumber);
@@ -295,6 +284,9 @@ const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPo
             return null;
         }
         let index = pos.column - 1;
+        if (repeatLast === true && count === 1 && text[index + 1] === ch) {
+            index++;
+        }
         while (count && index !== -1) {
             index = text.indexOf(ch, index + 1);
             count--;
@@ -305,15 +297,14 @@ const charMotion: {[k in CharMotionKind]: (ctx: ICommandContext, pos: monaco.IPo
         column = index + 1 - 1;
         return {lineNumber, column};
     },
-    T(ctx, pos, count, ch) {
-        lastCharMotion = {
-            kind: 'T',
-            char: ch,
-        }
+    T(ctx, pos, count, ch, repeatLast) {
         let lineNumber = pos.lineNumber;
         let column = pos.column;
         let text = ctx.model.getLineContent(lineNumber);
         let index = pos.column - 1;
+        if (repeatLast === true && count === 1 && text[index - 1] === ch) {
+            index--;
+        }
         while (count && index !== -1) {
             index = index === 0 ? -1 : text.lastIndexOf(ch, index - 1);
             count--;
@@ -330,12 +321,20 @@ registerMotion(['f', {kind: 'Char'}], { inclusive: true, run(ctx, pos, count, _a
     if (!args.char) {
         throw new Error();
     }
+    lastCharMotion = {
+        kind: 'f',
+        char: args.char,
+    }
     return charMotion.f(ctx, pos, count, args.char);
 }});
 
 registerMotion(['F', {kind: 'Char'}], { run(ctx, pos, count, _a, _b, args) {
     if (!args.char) {
         throw new Error();
+    }
+    lastCharMotion = {
+        kind: 'F',
+        char: args.char,
     }
     return charMotion.F(ctx, pos, count, args.char);
 }});
@@ -344,12 +343,20 @@ registerMotion(['t', {kind: 'Char'}], { inclusive: true, run(ctx, pos, count, _a
     if (!args.char) {
         throw new Error();
     }
+    lastCharMotion = {
+        kind: 't',
+        char: args.char,
+    }
     return charMotion.t(ctx, pos, count, args.char);
 }});
 
 registerMotion(['T', {kind: 'Char'}], { run(ctx, pos, count, _a, _b, args) {
     if (!args.char) {
         throw new Error();
+    }
+    lastCharMotion = {
+        kind: 'T',
+        char: args.char,
     }
     return charMotion.T(ctx, pos, count, args.char);
 }});
@@ -365,7 +372,7 @@ registerMotion(';', {
         if (!lastCharMotion) {
             return null;
         }
-        return charMotion[lastCharMotion.kind](ctx, pos, count, lastCharMotion.char);
+        return charMotion[lastCharMotion.kind](ctx, pos, count, lastCharMotion.char, true);
     },
 });
 
@@ -380,7 +387,7 @@ registerMotion(',', {
         if (!lastCharMotion) {
             return null;
         }
-        return charMotion[oppositeDirection(lastCharMotion.kind)](ctx, pos, count, lastCharMotion.char);
+        return charMotion[oppositeDirection(lastCharMotion.kind)](ctx, pos, count, lastCharMotion.char, true);
     },
 });
 //#endregion

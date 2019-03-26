@@ -35,6 +35,28 @@ FROM({
 .RUN()
 
 FROM({
+    suit: 'insert mode - insert/append - multi-cursor',
+    text: ['12', '12'],
+})
+.TEST('i')
+    .cursors([1, 2], [2, 2])
+    .next({ input: '2i*<ESC>', text: ['1**2', '1**2'], cursors: [[1, 3], [2, 3]],  mode: 'Normal' })
+    .next({ input: '1.', text: ['1***2', '1***2'], cursors: [[1, 3], [2, 3]],  mode: 'Normal' })
+.TEST('a')
+    .cursors([1, 1], [2, 1])
+    .next({ input: 'a*<ESC>', text: ['1*2', '1*2'], cursors: [[1, 2], [2, 2]],  mode: 'Normal' })
+    .next({ input: '2.', text: ['1***2', '1***2'], cursors: [[1, 4], [2, 4]],  mode: 'Normal' })
+.TEST('I')
+    .cursors([1, 2], [2, 2])
+    .next({ input: '2I*<ESC>', text: ['**12', '**12'], cursors: [[1, 2], [2, 2]],  mode: 'Normal' })
+    .next({ input: '1.', text: ['***12', '***12'], cursors: [[1, 1], [2, 1]],  mode: 'Normal' })
+.TEST('A')
+    .cursors([1, 1], [2, 1])
+    .next({ input: 'A*<ESC>', text: ['12*', '12*'], cursors: [[1, 3], [2, 3]],  mode: 'Normal' })
+    .next({ input: '2.', text: ['12***', '12***'], cursors: [[1, 5], [2, 5]],  mode: 'Normal' })
+.RUN()
+
+FROM({
     suit: 'insert mode - new line',
     text: ['-', '-',],
 })
@@ -64,4 +86,20 @@ FROM({
     .next({ input: 'Vcab<ESC>', line: [1, 'ab'], cursor: [1, 2], mode: 'Normal' })
     .cursor(2, 2)
     .next({ input: '2.', text: ['ab', 'ab', '1 2 3'], cursor: [2, 2], mode: 'Normal' })
+.RUN()
+
+FROM({
+    suit: 'insert mode - change - multi-cursor',
+    text: ['1 2 3', '1 2 3'],
+    cursors: [[1, 1], [2, 1]],
+})
+.TEST('cw')
+    .next({ input: 'cw**<ESC>', text: ['** 2 3', '** 2 3'], cursors: [[1, 2], [2, 2]], mode: 'Normal' })
+    .next({ input: 'w2.', text: ['** **', '** **'], cursors: [[1, 5], [2, 5]], mode: 'Normal' })
+.TEST('char-visual')
+    .next({ input: 'vec**<ESC>', text: ['** 3', '** 3'], cursors: [[1, 2], [2, 2]], mode: 'Normal' })
+    .next({ input: '.', text: ['***', '***'], cursors: [[1, 3], [2, 3]], mode: 'Normal' })
+.TEST('line-visual', {text: Array<string>(8).fill('%')})
+    .cursors([1, 1], [5, 1])
+    .next({ input: '2Vc*<ESC>j.', text: ['*', '*', '*', '*'], cursors: [[2, 1], [4, 1]], mode: 'Normal' })
 .RUN()

@@ -19,28 +19,33 @@ export class VisualLineMode extends ModeBase {
         return configuration.vmap;
     }
 
-    enter(sel?: {first: number; last: number}) {
+    enter(sels?: {first: number; last: number}[]) {
         this.context.editor.updateOptions({cursorStyle: 'block'});
-        let start: monaco.IPosition;
-        let end: monaco.IPosition;
-        if (sel) {
-            if (sel.first <= sel.last) {
-                start = this.context.position.get(sel.first, 1);
-                end = this.context.position.get(sel.last, 'eol');
-            }
-            else {
-                start = this.context.position.get(sel.first, 'eol');
-                end = this.context.position.get(sel.last, 1);
-            }
+        let selections: monaco.Selection[];
+        if (sels && sels.length > 0) {
+            selections = sels.map(sel => {
+                let start: monaco.IPosition;
+                let end: monaco.IPosition;
+                if (sel.first <= sel.last) {
+                    start = this.context.position.get(sel.first, 1);
+                    end = this.context.position.get(sel.last, 'eol');
+                }
+                else {
+                    start = this.context.position.get(sel.first, 'eol');
+                    end = this.context.position.get(sel.last, 1);
+                }
+                return monaco.Selection.fromPositions(start, end);
+            });
         }
         else {
             let ln = this.context.editor.getPosition()!.lineNumber;
-            start = this.context.position.get(ln, 1);
-            end = this.context.position.get(ln, 'eol');
+            let start = this.context.position.get(ln, 1);
+            let end = this.context.position.get(ln, 'eol');
+            return monaco.Selection.fromPositions(start, end);
         }
-        this.context.vimState.previousVisual = {kind: 'line', first: start.lineNumber, last: end.lineNumber};
-        this.context.editor.setSelection(monaco.Selection.fromPositions(start, end));
-        this.subscriptions.push(this.context.editor.onDidChangeCursorPosition(e => this.onCursorPositionChanged(e)));
+        this.context.vimState.previousVisual = {kind: 'line', first: selections[0].selectionStartLineNumber, last: selections[0].positionLineNumber};
+        this.context.editor.setSelections(selections);
+        this.subscriptions.push(this.context.editor.onDidChangeCursorSelection(e => this.onSelectionChanged(e)));
     }
 
     leave() {
@@ -56,10 +61,36 @@ export class VisualLineMode extends ModeBase {
         this.subscriptions = []
     }
 
-    onCursorPositionChanged(e: monaco.editor.ICursorPositionChangedEvent) {
-        if (!this.context.vimState.isMovingCursorByMotion) {
-            if (this.context.editor.getSelection()!.isEmpty()) {
+    onSelectionChanged(e: monaco.editor.ICursorSelectionChangedEvent) {
+        let sel = e.selection;
+        if (!this.context.vimState.isExecutingCommand) {
+            if (sel.isEmpty() && e.secondarySelections.length === 0) {
                 this.context.vimState.toNormal();
+                return;
+            }
+            else {
+                let reverse = sel.selectionStartLineNumber > sel.positionLineNumber;
+                let newSelections = this.context.editor.getSelections()!.map(x => {
+                    let first = x.selectionStartLineNumber;
+                    let last = x.positionLineNumber;
+                    if (reverse && last >= first) {
+                        let tmp = first;
+                        first = last;
+                        last = tmp;
+                    }
+                    let start: monaco.IPosition;
+                    let end: monaco.IPosition;
+                    if (!reverse) {
+                        start = {lineNumber: first, column: 1};
+                        end = this.context.position.get(last, 'eol');
+                    }
+                    else {
+                        start = this.context.position.get(first, 'eol');
+                        end = {lineNumber: last, column: 1};
+                    }
+                    return monaco.Selection.fromPositions(start, end);
+                });
+                this.context.editor.setSelections(newSelections);
             }
         }
     }

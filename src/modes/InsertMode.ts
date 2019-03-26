@@ -58,19 +58,29 @@ class PlainInsertAction implements IRepeatInsertAction {
     }
 
     execute(ctx: ICommandContext) {
-        return doThen(this.execBeforeAction(ctx), () => {
-            if (this.change) {
-                let pos = ctx.model.getOffsetAt(ctx.editor.getPosition()!);
-                let offsetStart = Math.max(0, pos - this.change.deleteBefore);
-                let start = ctx.model.getPositionAt(offsetStart);
-                let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change.deleteAfter));
-                let range = monaco.Range.fromPositions(start, end);
-                let text = this.change.text;
-                ctx.editor.executeEdits('vim', [{range, text}]);
-                let cur = ctx.model.getPositionAt(offsetStart + text.length);
-                ctx.editor.setPosition(cur);
+        return doThen(this.execBeforeAction(ctx), res => {
+            if (res === false) {
+                return;
             }
-            ctx.editor.pushUndoStop();
+            if (this.change) {
+                let selections = ctx.editor.getSelections();
+                if (selections) {
+                    let edits = selections.map(x => {
+                        let pos = ctx.model.getOffsetAt(x.getPosition());
+                        let offsetStart = Math.max(0, pos - this.change!.deleteBefore);
+                        let start = ctx.model.getPositionAt(offsetStart);
+                        let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change!.deleteAfter));
+                        let range = monaco.Range.fromPositions(start, end);
+                        let text = this.change!.text;
+                        return { range, text };
+                    });
+                    let r = ctx.model.pushEditOperations(selections, edits, inverseEdits => inverseEdits.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                    if (r) {
+                        ctx.editor.setSelections(r);
+                    }
+                    ctx.editor.pushUndoStop();
+                }
+            }
             toNormal(ctx);
         });
     }
@@ -100,41 +110,94 @@ class InsertRepeatedTextAction implements IRepeatInsertAction {
     }
 
     execute(ctx: ICommandContext) {
-        return doThen(this.execBeforeAction(ctx), () => {
+        return doThen(this.execBeforeAction(ctx), res => {
+            if (res === false) {
+                return;
+            }
             if (this.change) {
                 let n = this.count;
-                while (n !== 0) {
-                    let pos = ctx.model.getOffsetAt(ctx.editor.getPosition()!);
-                    let offsetStart = Math.max(0, pos - this.change.deleteBefore);
-                    let start = ctx.model.getPositionAt(offsetStart);
-                    let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change.deleteAfter));
-                    let range = monaco.Range.fromPositions(start, end);
-                    let text = this.change.text;
-                    ctx.editor.executeEdits('vim', [{range, text}]);
-                    let cur = ctx.model.getPositionAt(offsetStart + text.length);
-                    ctx.editor.setPosition(cur);
-                    n--;
+                if (this.change.deleteBefore === 0 && this.change.deleteAfter === 0) {
+                    let text = this.change.text.repeat(n);
+                    let selections = ctx.editor.getSelections();
+                    if (!selections) {
+                        throw new Error();
+                    }
+                    let edits = selections.map(x => {
+                        let range = monaco.Range.fromPositions(x.getPosition());
+                        return { range, text };
+                    });
+                    let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                    if (r) {
+                        ctx.editor.setSelections(r);
+                    }
                 }
+                else {
+                    while (n !== 0) {
+                        let selections = ctx.editor.getSelections();
+                        if (!selections) {
+                            throw new Error();
+                        }
+                        let edits = selections.map(x => {
+                            let pos = ctx.model.getOffsetAt(x.getPosition());
+                            let offsetStart = Math.max(0, pos - this.change!.deleteBefore);
+                            let start = ctx.model.getPositionAt(offsetStart);
+                            let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change!.deleteAfter));
+                            let range = monaco.Range.fromPositions(start, end);
+                            let text = this.change!.text;
+                            return { range, text };
+                        });
+                        let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                        if (r) {
+                            ctx.editor.setSelections(r);
+                        }
+                        n--;
+                    }
+                }
+                ctx.editor.pushUndoStop();
             }
-            ctx.editor.pushUndoStop();
             toNormal(ctx);
         });
     }
 
     commitInsertion(ctx: ICommandContext) {
-        if (this.change) {
-            let n = this.count - 1;
-            while (n !== 0) {
-                let pos = ctx.model.getOffsetAt(ctx.editor.getPosition()!);
-                let offsetStart = Math.max(0, pos - this.change.deleteBefore);
-                let start = ctx.model.getPositionAt(offsetStart);
-                let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change.deleteAfter));
-                let range = monaco.Range.fromPositions(start, end);
-                let text = this.change.text;
-                ctx.editor.executeEdits('vim', [{range, text}]);
-                let cur = ctx.model.getPositionAt(offsetStart + text.length);
-                ctx.editor.setPosition(cur);
-                n--;
+        let n = this.count - 1;
+        if (this.change && n !== 0) {
+            if (this.change.deleteBefore === 0 && this.change.deleteAfter === 0) {
+                let text = this.change.text.repeat(n);
+                let selections = ctx.editor.getSelections();
+                if (!selections) {
+                    throw new Error();
+                }
+                let edits = selections.map(x => {
+                    let range = monaco.Range.fromPositions(x.getPosition());
+                    return { range, text };
+                });
+                let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                if (r) {
+                    ctx.editor.setSelections(r);
+                }
+            }
+            else {
+                while (n !== 0) {
+                    let selections = ctx.editor.getSelections();
+                    if (!selections) {
+                        throw new Error();
+                    }
+                    let edits = selections.map(x => {
+                        let pos = ctx.model.getOffsetAt(x.getPosition());
+                        let offsetStart = Math.max(0, pos - this.change!.deleteBefore);
+                        let start = ctx.model.getPositionAt(offsetStart);
+                        let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change!.deleteAfter));
+                        let range = monaco.Range.fromPositions(start, end);
+                        let text = this.change!.text;
+                        return { range, text };
+                    });
+                    let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                    if (r) {
+                        ctx.editor.setSelections(r);
+                    }
+                    n--;
+                }
             }
             ctx.editor.pushUndoStop();
         }
@@ -165,17 +228,28 @@ class RepeatCommandAndInsertAction implements IRepeatableAction {
         let n = this.count;
         // TODO
         while (n !== 0) {
-            doThen(this.execBeforeAction(ctx), () => {
+            doThen(this.execBeforeAction(ctx), res => {
+                if (res === false) {
+                    return;
+                }
                 if (this.change) {
-                    let pos = ctx.model.getOffsetAt(ctx.editor.getPosition()!);
-                    let offsetStart = Math.max(0, pos - this.change.deleteBefore);
-                    let start = ctx.model.getPositionAt(offsetStart);
-                    let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change.deleteAfter));
-                    let range = monaco.Range.fromPositions(start, end);
-                    let text = this.change.text;
-                    ctx.editor.executeEdits('vim', [{range, text}]);
-                    let cur = ctx.model.getPositionAt(offsetStart + text.length);
-                    ctx.editor.setPosition(cur);
+                    let selections = ctx.editor.getSelections();
+                    if (!selections) {
+                        throw new Error();
+                    }
+                    let edits = selections.map(x => {
+                        let pos = ctx.model.getOffsetAt(x.getPosition());
+                        let offsetStart = Math.max(0, pos - this.change!.deleteBefore);
+                        let start = ctx.model.getPositionAt(offsetStart);
+                        let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change!.deleteAfter));
+                        let range = monaco.Range.fromPositions(start, end);
+                        let text = this.change!.text;
+                        return { range, text };
+                    });
+                    let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                    if (r) {
+                        ctx.editor.setSelections(r);
+                    }
                 }
             });
             n--;
@@ -190,15 +264,23 @@ class RepeatCommandAndInsertAction implements IRepeatableAction {
         while (n !== 0) {
             doThen(this.execBeforeAction(ctx), () => {
                 if (this.change) {
-                    let pos = ctx.model.getOffsetAt(ctx.editor.getPosition()!);
-                    let offsetStart = Math.max(0, pos - this.change.deleteBefore);
-                    let start = ctx.model.getPositionAt(offsetStart);
-                    let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change.deleteAfter));
-                    let range = monaco.Range.fromPositions(start, end);
-                    let text = this.change.text;
-                    ctx.editor.executeEdits('vim', [{range, text}]);
-                    let cur = ctx.model.getPositionAt(offsetStart + text.length);
-                    ctx.editor.setPosition(cur);
+                    let selections = ctx.editor.getSelections();
+                    if (!selections) {
+                        throw new Error();
+                    }
+                    let edits = selections.map(x => {
+                        let pos = ctx.model.getOffsetAt(x.getPosition());
+                        let offsetStart = Math.max(0, pos - this.change!.deleteBefore);
+                        let start = ctx.model.getPositionAt(offsetStart);
+                        let end = ctx.model.getPositionAt(Math.min(ctx.model.getValueLength(), pos + this.change!.deleteAfter));
+                        let range = monaco.Range.fromPositions(start, end);
+                        let text = this.change!.text;
+                        return { range, text };
+                    });
+                    let r = ctx.model.pushEditOperations(selections, edits, inv => inv.map(x => monaco.Selection.fromPositions(x.range.getEndPosition())));
+                    if (r) {
+                        ctx.editor.setSelections(r);
+                    }
                 }
             });
             n--;
@@ -207,11 +289,15 @@ class RepeatCommandAndInsertAction implements IRepeatableAction {
     }
 }
 
-function toNormal(ctx: ICommandContext, cursor?: monaco.IPosition) {
-    cursor = cursor || ctx.editor.getPosition()!;
-    let pos = ctx.position.get(cursor).shouldWrap(false).move(-1);
-    ctx.editor.setPosition(pos);
-    ctx.editor.revealPosition(pos);
+function toNormal(ctx: ICommandContext) {
+    let selections = ctx.editor.getSelections();
+    if (selections && selections.length > 0) {
+        let cursors = selections.map(x => {
+            return ctx.position.get(x.getPosition()).shouldWrap(false).move(-1).toSelection();
+        });
+        ctx.editor.setSelections(cursors);
+        ctx.editor.revealRange(cursors[0]);
+    }
     ctx.vimState.toNormal();
 }
 
@@ -234,7 +320,21 @@ export class InsertMode extends Mode {
 
     constructor(readonly context: ICommandContext) {
         super('Insert', 'Insert');
-        this.insertionPoint = context.model.getOffsetAt(context.editor.getPosition()!);
+        this.insertionPoint = this.getInsertionPoint();
+    }
+
+    private getInsertionPoint() {
+        let selections = this.context.editor.getSelections();
+        if (!selections || selections.length === 0) {
+            throw new Error();
+        }
+        let sel = selections[0];
+        for (let i = 1; i < selections.length; i++) {
+            if (monaco.Range.compareRangesUsingStarts(selections[i], sel) < 0) {
+                sel = selections[i]
+            }
+        }
+        return this.context.model.getOffsetAt(sel.getPosition());
     }
 
     enter(capture?: CommandAction, repeatable: RepeatableKind = 'none') {
@@ -244,7 +344,7 @@ export class InsertMode extends Mode {
         }
         this.beforeAction = capture;
         this.repeatable = repeatable;
-        this.insertionPoint = this.context.model.getOffsetAt(this.context.editor.getPosition()!);
+        this.insertionPoint = this.getInsertionPoint();
         this.subscriptions.push(this.context.editor.onDidChangeCursorPosition(e => this.onCursorPositionChanged(e)));
         this.subscriptions.push(this.context.editor.onDidChangeCursorSelection(e => this.onSelectionChanged(e)));
         this.subscriptions.push(this.context.model.onDidChangeContent(e => this.onContentChanged(e)));
@@ -283,7 +383,7 @@ export class InsertMode extends Mode {
     onCursorPositionChanged(e: monaco.editor.ICursorPositionChangedEvent) {
         if (e.reason === monaco.editor.CursorChangeReason.Explicit) {
             this.stageChangeRecord();
-            this.insertionPoint = this.context.model.getOffsetAt(this.context.editor.getPosition()!);
+            this.insertionPoint = this.getInsertionPoint();
             this.repeatable = 'text';
         }
     }
@@ -296,9 +396,14 @@ export class InsertMode extends Mode {
         if (e.changes.length === 0) {
             return;
         }
-        if (e.changes.length > 1) {
+        let cursorCount = 0;
+        let selections = this.context.editor.getSelections();
+        if (selections) {
+            cursorCount = selections.length;
+        }
+        if (e.changes.length !== cursorCount) {
             this.stageChangeRecord();
-            this.insertionPoint = this.context.model.getOffsetAt(this.context.editor.getPosition()!);
+            this.insertionPoint = this.getInsertionPoint();
             return;
         }
         if (!this.change) {
@@ -309,10 +414,16 @@ export class InsertMode extends Mode {
                 deletionAfter: 0,
             }
         }
-        let removalStart = e.changes[0].rangeOffset;
-        let removalEnd = e.changes[0].rangeOffset + e.changes[0].rangeLength;
-        let removalLength = e.changes[0].rangeLength;
-        let insertionLength = e.changes[0].text.length;
+        let firstChange = e.changes[0];
+        for (let i = 1; i < e.changes.length; i++) {
+            if (e.changes[i].rangeOffset < firstChange.rangeOffset) {
+                firstChange = e.changes[i];
+            }
+        }
+        let removalStart = firstChange.rangeOffset;
+        let removalEnd = firstChange.rangeOffset + firstChange.rangeLength;
+        let removalLength = firstChange.rangeLength;
+        let insertionLength = firstChange.text.length;
         let textLength = this.change.textEnd - this.change.textStart;
         if (removalStart > this.change.textEnd || removalEnd < this.change.textStart) {
             this.stageChangeRecord();
@@ -367,7 +478,7 @@ export class InsertMode extends Mode {
             textChange = {
                 text,
                 deleteBefore: change.deletionBefore,
-                deleteAfter: change.deletionBefore,
+                deleteAfter: change.deletionAfter,
             };
         }
         if (kind === 'none') {

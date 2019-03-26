@@ -48,3 +48,42 @@ FROM({
     .restore()
     .next({input: '2gP', text: [' a', ' a', '-', '-'], cursor: [3, 1]})
 .RUN()
+
+FROM({
+    suit: 'operator - put in Visual',
+    text: ['+', 'abc']
+})
+.TEST('line to line')
+    .next({input: 'yyjVp"1p', text: ['+', '+', 'abc']})
+    .restore()
+    .next({input: 'yy2V2p"1p', text: ['+', '+', 'abc', '+']})
+.TEST('line to char')
+    .next({input: 'yyjlvlp"-p', text: ['+', 'a', '+b', 'c']})
+    .restore()
+    .next({input: '2yyjlvlp"-p', text: ['+', 'a', '+b', 'abc', 'c']})
+.TEST('char to line')
+    .next({input: 'ywVjp"1p', text: ['+', '+', 'abc']})
+    .restore()
+    .next({input: 'ywVj2p"1p', text: ['+', '+', 'abc', '+']})
+.TEST('char to char')
+    .next({input: 'ywjlvlp"-p', text: ['+', 'a+bc']})
+    .restore()
+    .next({input: 'ywjlvl2p"-p', text: ['+', 'a++bc']})
+.RUN()
+
+FROM({
+    suit: 'operator - put with multi-cursor',
+    text: ['+', '*'],
+    cursors: [[1, 1], [2, 1]]
+})
+.TEST('linewise')
+    .next({input: 'yy2p', text: ['+', '+', '+', '*', '*', '*']})
+    .restore()
+    .cursor(1, 1)
+    .next({input: '2p', text: ['+', '+', '*', '+', '*', '*']})
+.TEST('charwise')
+    .next({input: 'yw2p', text: ['+++', '***']})
+    .restore()
+    .cursor(1, 1)
+    .next({input: '2p', text: ['++', '*', '+', '*', '*']})
+.RUN()

@@ -7,6 +7,8 @@ import { ICommandContext } from "../boot/base";
 export class NormalMode extends ModeBase {
     private subscriptions: monaco.IDisposable[] = [];
 
+    private checkCursorsScheduled = false;
+
     constructor(context: ICommandContext) {
         super('Normal', 'Normal', context);
     }
@@ -21,10 +23,12 @@ export class NormalMode extends ModeBase {
 
     enter() {
         this.context.editor.updateOptions({cursorStyle: 'block'});
-        let pos = this.context.position.get().soft();
-        this.context.editor.setPosition(pos);
-        this.subscriptions.push(this.context.editor.onDidChangeCursorPosition(e => this.onCursorChanged(e)));
+        let selections = this.context.editor.getSelections();
+        if (selections) {
+            this.context.editor.setSelections(selections.map(x => this.context.position.soften(x.getPosition()).toSelection()));
+        }
         this.subscriptions.push(this.context.editor.onDidChangeCursorSelection(e => this.onSelectionChanged(e)));
+        this.subscriptions.push(this.context.editor.onDidChangeModelContent(e => this.onContentChanged()))
     }
 
     leave() {
@@ -40,28 +44,33 @@ export class NormalMode extends ModeBase {
         this.subscriptions = []
     }
 
-    onCursorChanged(e: monaco.editor.ICursorPositionChangedEvent) {
-        // console.log(`#cur source: ${e.source}, reason: ${monaco.editor.CursorChangeReason[e.reason]}`);
-        // if (!this.context.vimState.isExecutingCommand) {
-        //     let pos = this.context.position.soften(e.position);
-        //     this.context.editor.setPosition(pos);
-        // }
+    onContentChanged() {
+        if (!this.context.vimState.isExecutingCommand) {
+            this.checkCursorsScheduled = true;
+            requestAnimationFrame(() => {
+                if (this.checkCursorsScheduled) {
+                    const editor = this.context.editor;
+                    let selections = editor.getSelections();
+                    if (selections) {
+                        editor.setSelections(selections.map(x => this.context.position.soften(x.getPosition()).toSelection()))
+                    }
+                }
+            });
+        }
     }
 
     onSelectionChanged(e: monaco.editor.ICursorSelectionChangedEvent) {
         // console.log(`#sel source: ${e.source}, reason: ${monaco.editor.CursorChangeReason[e.reason]}`);
-        // if (e.reason === monaco.editor.CursorChangeReason.Explicit && !e.selection.isEmpty()) {
-        //     this.context.vimState.toInsert();
-        // }
-        if (e.reason === monaco.editor.CursorChangeReason.Undo || e.reason === monaco.editor.CursorChangeReason.Redo) {
-            let pos = this.context.position.soften(e.selection.getPosition()!);
-            this.context.editor.setPosition(pos);
-            return;
-        }
         if (!this.context.vimState.isExecutingCommand) {
-            if (e.selection.isEmpty()) {
-                let pos = this.context.position.soften(e.selection.getStartPosition());
-                this.context.editor.setPosition(pos);
+            this.checkCursorsScheduled = false;
+            if (e.reason === monaco.editor.CursorChangeReason.Undo ||  e.reason === monaco.editor.CursorChangeReason.Redo || (e.selection.isEmpty() && e.secondarySelections.every(x => x.isEmpty()))) {
+                let pos = this.context.position.soften(e.selection.getPosition());
+                let selections = [monaco.Selection.fromPositions(pos, pos)];
+                e.secondarySelections.forEach(x => {
+                    let p = this.context.position.soften(x.getPosition())
+                    selections.push(monaco.Selection.fromPositions(p, p));
+                })
+                this.context.editor.setSelections(selections);
             }
             else {
                 if (configuration.enterInsertModeIfSelectOutsideVim) {
@@ -74,4 +83,3 @@ export class NormalMode extends ModeBase {
         }
     }
 }
-
