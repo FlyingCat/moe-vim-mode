@@ -1,4 +1,4 @@
-import { ICommandContext } from "../command";
+import { ICommandContext } from "../boot/base";
 import { TextPosition, CursorKind } from "./position";
 import * as monaco from "monaco-editor";
 import { isCommentOrStringAtPosition } from "../utils/token";
@@ -72,37 +72,37 @@ export class TextBracket {
     static findOuterPair(ctx: ICommandContext, pos: monaco.IPosition, pair: [string, string], count: number) {
         let from = TextBracket.findOpening(ctx, pos, pair, count);
         if (!from) {
-            return false;
+            return null;
         }
-        let position = TextBracket.findClosing(ctx, pos, pair, count);
-        return from && position ? {from, position} : false;
+        let to = TextBracket.findClosing(ctx, pos, pair, count);
+        return from && to ? {from, to} : null;
     }
 
     static findInnerPair(ctx: ICommandContext, pos: monaco.IPosition, pair: [string, string], count: number) {
         let result = this.findOuterPair(ctx, pos, pair, count);
         if (result) {
-            return TextBracket.getInnerPariRange(ctx, result.from, result.position);
+            return TextBracket.getInnerPariRange(ctx, result.from, result.to);
         }
-        return false;
+        return null;
     }
 
-    private static getInnerPariRange(ctx: ICommandContext, from: TextPosition, position: TextPosition) {
+    private static getInnerPariRange(ctx: ICommandContext, from: TextPosition, to: TextPosition) {
         from.forward();
-        if (!monaco.Position.isBefore(from, position)) {
-            return false;
+        if (!monaco.Position.isBefore(from, to)) {
+            return null;
         }
         let linewise = false;
-        if (from.kind === CursorKind.EOL && from.lineNumber + 1 < position.lineNumber) {
+        if (from.kind === CursorKind.EOL && from.lineNumber + 1 < to.lineNumber) {
             let firstNonBlank = from.clone().setColumn('^');
-            if (firstNonBlank.column === position.column) {
+            if (firstNonBlank.column === to.column) {
                 from = ctx.position.get(from.lineNumber + 1, 1);
-                position = ctx.position.get(position.lineNumber - 1, '$');
+                to = ctx.position.get(to.lineNumber - 1, '$');
                 linewise = true;
             }
         }
         if (!linewise) {
-            position.backward(); // inclusive
+            to.backward(); // inclusive
         }
-        return {from, position, linewise};
+        return {from, to, linewise};
     }
 }

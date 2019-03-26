@@ -1,9 +1,8 @@
-import { Pattern, CapAction, SeqAction, IMatchCapture } from "./pattern";
-import { SeqMap } from "./seqMap";
+import { Pattern, CapAction, IMatchCapture } from "./pattern";
 import { isCharKey } from "../utils/key";
-import { MotionFunction } from "../motions";
 import { registerManager } from "../registerManager";
-import { ICommand } from "../command";
+import { ICommand, IMotion } from "../boot/base";
+import { convertToMarkId } from "../impl/sp/markCommon";
 
 class Registry {
     private list: any[] = [];
@@ -34,14 +33,14 @@ class ThreadState implements IMatchCapture
     // captures
     command?: ICommand;
     count?: number;
-    motion?: MotionFunction;
+    motion?: IMotion;
     linewise?: boolean;
     register?: number;
     char?: string;
+    mark?: string;
 
     // runtime props
     positions: number[] = [];
-    keyMap?: SeqMap<number, number>;
     callStack: number[] = [];
 
     constructor(frozen = false) {
@@ -72,8 +71,9 @@ class ThreadState implements IMatchCapture
             clone.linewise = this.linewise;
             clone.positions = this.positions.slice();
             clone.callStack = this.callStack.slice();
-            clone.keyMap = this.keyMap;
             clone.register = this.register;
+            clone.char = this.char;
+            clone.mark = this.mark;
             if (this._ref !== null) {
                 this._ref--;
             }
@@ -90,7 +90,7 @@ class ThreadState implements IMatchCapture
         return obj;
     }
 
-    setMotion(value: MotionFunction): ThreadState {
+    setMotion(value: IMotion): ThreadState {
         let obj = this.cloneIfNeed();
         obj.motion = value;
         return obj;
@@ -114,6 +114,18 @@ class ThreadState implements IMatchCapture
         return obj;
     }
 
+    setChar(value: string): ThreadState {
+        let obj = this.cloneIfNeed();
+        obj.char = value;
+        return obj;
+    }
+
+    setMark(value: string): ThreadState {
+        let obj = this.cloneIfNeed();
+        obj.mark = value;
+        return obj;
+    }
+
     pushPositon(value: number): ThreadState {
         let obj = this.cloneIfNeed();
         obj.positions.push(value);
@@ -127,18 +139,6 @@ class ThreadState implements IMatchCapture
             throw new Error('Array.pop fail.')
         }
         return {value, state};
-    }
-
-    setMap(map: SeqMap<number, number>): ThreadState {
-        let obj = this.cloneIfNeed();
-        obj.keyMap = map;
-        return obj;
-    }
-
-    resetMap(): ThreadState {
-        let obj = this.cloneIfNeed();
-        obj.keyMap = undefined;
-        return obj;
     }
 
     pushCall(pc: number) {
@@ -372,7 +372,7 @@ export class Program {
                     break;
                 case OpCode.Char:
                     if (isCharKey(key)) {
-                        if (endState = this.execNextInst(t.update(t.pc + 1))) {
+                        if (endState = this.execNextInst(t.update(t.pc + 1, t.state.setChar(String.fromCharCode(key))))) {
                             return this.matched(endState);
                         }
                     }
@@ -385,21 +385,11 @@ export class Program {
                         }
                     }
                     break;
-                case OpCode.Seq:
-                    let map = t.state.keyMap || (registry.get(this.code[t.pc + 1]) as SeqMap<number, number>);
-                    let r = map.get(key);
-                    if (r !== undefined) {
-                        if (r instanceof Map) {
-                            this.threads.push(t.update(undefined, t.state.setMap(r)));
-                        }
-                        else {
-                            let newState = t.state.resetMap();
-                            if ((registry.get(this.code[t.pc + 2]) as SeqAction)(newState, r) === true) {
-                                return this.matched(newState);
-                            }
-                            if (endState = this.execNextInst(t.update(t.pc + 3, newState))) {
-                                return this.matched(endState);
-                            }
+                case OpCode.Mark:
+                    let mid = convertToMarkId(key);
+                    if (mid) {
+                        if (endState = this.execNextInst(t.update(t.pc + 1, t.state.setMark(mid)))) {
+                            return this.matched(endState);
                         }
                     }
                     break;
@@ -447,7 +437,7 @@ export class Program {
             case OpCode.Char:
             case OpCode.NonZeroDigit:
             case OpCode.Register:
-            case OpCode.Seq:
+            case OpCode.Mark:
                 this.threads.push(t);
                 break;
             case OpCode.SetCommand:
@@ -465,8 +455,9 @@ export class Program {
             case OpCode.Jump:
                 return this.execNextInst(t.update(pos + this.code[pos + 1]));
             case OpCode.Split:
+                let state = t.state.ref();
                 let r1 = this.execNextInst(t.update(t.pc + 2));
-                let r2 = this.execNextInst(new Thread(pos + this.code[pos + 1], t.state.ref()));
+                let r2 = this.execNextInst(new Thread(pos + this.code[pos + 1], state));
                 if (r1 || r2) {
                     throw new Error('"Split" direct to end state.')
                 }
@@ -486,11 +477,11 @@ export enum OpCode {
     NonZeroDigit,
     Char,
     Register,
+    Mark,
     Split,
     Jump,
     Push,
     Pop,
-    Seq,
     SetCommand,
     SetMotion,
     SetLinewise,
@@ -505,6 +496,7 @@ function count(patt: Pattern, routinesRef: {pattern: Pattern, size: number}[]): 
         case 'Digit':
         case 'Char':
         case 'Reg':
+        case 'Mark':
             return 1;
         case 'Cat':
             return count(patt.left, routinesRef) + count(patt.right, routinesRef);
@@ -516,15 +508,17 @@ function count(patt: Pattern, routinesRef: {pattern: Pattern, size: number}[]): 
             return 2 + count(patt.child, routinesRef);
         case 'Star':
             return 4 + count(patt.child, routinesRef);
-        case 'Seq':
-            return 3;
-        case 'Set':
+        case 'WriteCommand':
+        case 'WriteMotion':
+        case 'WriteLinewise':
             return 2;
         case 'Cap':
             return 3 + count(patt.child, routinesRef);
         case 'Routine':
             if (routinesRef.findIndex(x => x.pattern === patt.child) < 0) {
-                routinesRef.push({pattern: patt.child, size: count(patt.child, routinesRef)});
+                let ref = {pattern: patt.child, size: 0};
+                routinesRef.push(ref);
+                ref.size = count(patt.child, routinesRef);
             }
             return 2;
         default:
@@ -554,6 +548,9 @@ function compile(store: Int16Array, pos: number, patt: Pattern, routinesRef: {pa
         case 'Reg':
             store[pos] = OpCode.Register;
             return 1;
+        case 'Mark':
+            store[pos] = OpCode.Mark;
+            return 1;
         case 'Cat':
             len = compile(store, pos, patt.left, routinesRef);
             return len + compile(store, pos + len, patt.right, routinesRef);
@@ -582,26 +579,17 @@ function compile(store: Int16Array, pos: number, patt: Pattern, routinesRef: {pa
             store[pos + len  + 2] = OpCode.Jump;
             store[pos + len  + 3] = -(len + 2);
             return len + 4;
-        case 'Seq':
-            store[pos] = OpCode.Seq;
-            store[pos + 1] = registry.put(patt.target);
-            store[pos + 2] = registry.put(patt.action);
-            return 3;
-        case 'Set':
-            switch (patt.target.which) {
-                case 'command':
-                    store[pos] = OpCode.SetCommand;
-                    store[pos + 1] = registry.put(patt.target.value);
-                    break;
-                case 'motion':
-                    store[pos] = OpCode.SetMotion;
-                    store[pos + 1] = registry.put(patt.target.value);
-                    break;
-                case 'linewise':
-                    store[pos] = OpCode.SetLinewise;
-                    store[pos + 1] = patt.target.value ? 1 : 0;
-                    break;
-            }
+        case 'WriteCommand':
+            store[pos] = OpCode.SetCommand;
+            store[pos + 1] = registry.put(patt.value);
+            return 2;
+        case 'WriteMotion':
+            store[pos] = OpCode.SetMotion;
+            store[pos + 1] = registry.put(patt.value);
+            return 2;
+        case 'WriteLinewise':
+            store[pos] = OpCode.SetLinewise;
+            store[pos + 1] = patt.value ? 1 : 0;
             return 2;
         case 'Cap':
             store[pos] = OpCode.Push;

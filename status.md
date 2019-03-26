@@ -262,8 +262,8 @@ __not supported__
 |   ✓ ★   |   ={motion}   |   Filter {motion} lines. Note: base on "Format Selection" action    |
 |   ✓ ★   |   ==   |   Filter [count] lines like with ={motion}. Note: as above    |
 |   ✓ ★   |   {Visual}=   |   Filter the highlighted lines like with ={motion}. Note: as above    |
-|   ! ★   |   :\[range]s\[ubstitute]/{pattern}/{string}/\[flags] \[count]   |   For each line in [range] replace a match of {pattern} with {string}. Note: js Regex/ReplaceString; supproted flags "giI"     |
-|   ! ★   |   :\[range]s\[ubstitute] \[flags] \[count]   |   Repeat last :substitute with same search pattern and substitute string, but without the same flags. Note: as above     |
+|   ! ★   |   :\[range]s\[ubstitute]/{pattern}/{string}/\[flags] \[count]   |   For each line in [range] replace a match of {pattern} with {string}. Note: js Regex/ReplaceString; supproted flags "&giI"     |
+|   ! ★   |   :\[range]s\[ubstitute] \[flags] \[count], :\[range]&[\&][flags] \[count]   |   Repeat last :substitute with same search pattern and substitute string, but without the same flags. Note: as above     |
 
 
 ## copy-move

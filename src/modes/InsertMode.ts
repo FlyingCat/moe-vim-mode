@@ -1,9 +1,8 @@
-import {  IEventSink } from "../types";
 import { Mode } from "./Mode";
 import * as keyUtils from "../utils/key";
 import { KeyCode } from "../utils/KeyCode";
 import { recorder, IRepeatableAction } from "../recorder";
-import { CommandFunction, ICommandContext, ICommand, ICommandArgs, executeCommand } from "../command";
+import { CommandFunction, ICommandContext, ICommand, ICommandArgs } from "../boot/base";
 import { doThen } from "../utils/helper";
 import * as monaco from "monaco-editor";
 

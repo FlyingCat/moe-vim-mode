@@ -1,9 +1,7 @@
 import { assert  } from "chai";
 import * as P from "../src/matching/pattern"
 import { Program, StepMatched } from "../src/matching/program";
-import { createSeqMap, searchSeqMap } from "../src/matching/seqMap";
-import { motionPattern, MotionFunction } from "../src/motions";
-import { ICommand, createCommand } from "../src/command";
+import { ICommand, IMotion } from "../src/boot/base";
 
 const source = 'test';
 
@@ -67,10 +65,23 @@ suite('program', function() {
         expectFail(prog, 'da');
         expectFail(prog, 'cw');
     });
+    test('routine', function() {
+        let patt = P.concat(P.key('g'), P.routine(P.alternateList([
+            P.concat(P.routine(P.key('d')), P.key('w')),
+            P.concat(P.routine(P.key('c')), P.key('e')),
+        ])));
+        let prog = new Program(patt);
+
+        expectMatch(prog, 'gdw');
+        expectMatch(prog, 'gce');
+
+        expectFail(prog, 'gdc');
+        expectFail(prog, 'gcd');
+    });
     test('with capture', function() {
-        let dumbMotion: MotionFunction = (ctx, pos, count) => ({lineNumber: 1, column: 1});
-        let dumbCommand: ICommand = createCommand((ctx, cap) => {});
-        let patt = P.concatList([P.common.registerPart, P.common.countPart, P.key('d'), P.common.linewisePart, P.common.countPart, P.key('w'), P.setMotion(dumbMotion), P.setCommand(dumbCommand)]);
+        let dumbMotion: IMotion = { run: (ctx, pos, count) => ({lineNumber: 1, column: 1}) };
+        let dumbCommand: ICommand = { run: ((ctx, cap) => {}) };
+        let patt = P.concatList([P.common.registerPart, P.common.countPart, P.key('d'), P.common.linewisePart, P.common.countPart, P.key('w'), P.writeMotion(dumbMotion), P.writeCommand(dumbCommand)]);
         let prog = new Program(patt);
 
         let cap: P.IMatchCapture;
@@ -105,49 +116,5 @@ suite('program', function() {
         expectFail(prog, '0');
         expectFail(prog, 'd0');
         expectFail(prog, 'dv0');
-    });
-    test('seq', function() {
-        let motions:{[k: string]: MotionFunction} = {
-            w: (ctx, pos, count) => ({lineNumber: 1, column: 1}),
-            gj: (ctx, pos, count) => ({lineNumber: 1, column: 1}),
-            gk: (ctx, pos, count) => ({lineNumber: 1, column: 1}),
-        };
-        let list: {seq: number[], val: MotionFunction}[] = [];
-        for (let k in motions) {
-            list.push({seq: k.split('').map(c => c.charCodeAt(0)), val: motions[k]});
-        }
-        let map = createSeqMap(list);
-        let motionPatt = P.seq(map, (c, v) => c.motion = v);
-
-        let moCommand: ICommand = createCommand((ctx, cap) => {});
-        let opCommand: ICommand = createCommand((ctx, cap) => {});
-
-        let patt = P.alternateList([
-            P.concatList([motionPatt, P.setCommand(moCommand)]),
-            P.concatList([P.key('d'), motionPatt, P.setCommand(opCommand)]),
-        ]);
-        let prog = new Program(patt);
-
-        let cap: P.IMatchCapture;
-
-        cap = expectMatch(prog, 'w')!;
-        assert.equal(cap.motion, motions['w']);
-        assert.equal(cap.command, moCommand);
-
-        cap = expectMatch(prog, 'gj')!;
-        assert.equal(cap.motion, motions['gj']);
-        assert.equal(cap.command, moCommand);
-
-        cap = expectMatch(prog, 'gk')!;
-        assert.equal(cap.motion, motions['gk']);
-        assert.equal(cap.command, moCommand);
-
-        cap = expectMatch(prog, 'dw')!;
-        assert.equal(cap.motion, motions['w']);
-        assert.equal(cap.command, opCommand);
-
-        expectFail(prog, 'dj');
-        expectFail(prog, 'j');
-        expectFail(prog, 'k');
     });
 });

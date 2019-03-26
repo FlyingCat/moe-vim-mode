@@ -1,11 +1,11 @@
 import { TextPosition, CursorKind } from "../text/position";
 import * as monaco from "monaco-editor";
 
-type ObjectSelectResult = false | { from: monaco.IPosition, position: monaco.IPosition };
+type ObjectSelectResult = null | { from: monaco.IPosition, to: monaco.IPosition };
 
 export class TextBound {
 
-    static findNextWordStart(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false, stopAtNext = false, trim = false): false | monaco.IPosition {
+    static findNextWordStart(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false, stopAtNext = false, trim = false): null | monaco.IPosition {
         const model = editor.getModel()!;
         let cursor = TextPosition.create(editor, pos.lineNumber, pos.column);
         let startInWord = !cursor.isBlank;
@@ -52,7 +52,7 @@ export class TextBound {
         return cursor;
     }
 
-    static findNextWordEnd(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): false | monaco.IPosition {
+    static findNextWordEnd(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): null | monaco.IPosition {
         const model = editor.getModel()!;
         let cursor = TextPosition.create(editor, pos.lineNumber, pos.column);
         // if (cursor.isLastChar) {
@@ -71,11 +71,11 @@ export class TextBound {
         return cursor;
     }
 
-    static findPrevWordStart(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): false | monaco.IPosition {
+    static findPrevWordStart(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): null | monaco.IPosition {
         const model = editor.getModel();
         let cursor = TextPosition.create(editor, pos.lineNumber, pos.column);
         if (cursor.isBOF) {
-            return false;
+            return null;
         }
         while (count && !cursor.isBOF) {
             cursor.backward();
@@ -92,11 +92,11 @@ export class TextBound {
         return cursor;
     }
 
-    static findPrevWordEnd(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): false | monaco.IPosition {
+    static findPrevWordEnd(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, count: number, fullWord = false): null | monaco.IPosition {
         const model = editor.getModel()!;
         let cursor = TextPosition.create(editor, pos.lineNumber, pos.column);
         if (cursor.isBOF) {
-            return false;
+            return null;
         }
         if (fullWord) {
             while (count && !cursor.isBOF) {
@@ -164,7 +164,7 @@ export class TextBound {
             n++;
         }
 
-        return { from: begin, position: cursor.soft() };
+        return { from: begin, to: cursor.soft() };
     }
 
 
@@ -182,7 +182,7 @@ export class TextBound {
             cursor.stepIf(cursor.isBlank ? x => x.kind === CursorKind.Whitespace : (fullWord ? x => !x.isBlank : x => x.kind === cursor.kind));
             n++;
         }
-        return { from: begin, position: cursor.soft() };
+        return { from: begin, to: cursor.soft() };
     }
 
     private static markQuotePairs(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, qs: string) {
@@ -215,10 +215,10 @@ export class TextBound {
         for (const pair of pairs) {
             if (pair[1] >= column) {
                 let lineNumber = pos.lineNumber;
-                return { from: { lineNumber, column: pair[0] }, position: { lineNumber, column: pair[1] } };
+                return { from: { lineNumber, column: pair[0] }, to: { lineNumber, column: pair[1] } };
             }
         }
-        return false;
+        return null;
     }
 
     static findInnerQuote(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition, qs: string): ObjectSelectResult {
@@ -233,10 +233,10 @@ export class TextBound {
                     col1++;
                     col2--;
                 }
-                return { from: { lineNumber, column: col1 }, position: { lineNumber, column: col2 } };
+                return { from: { lineNumber, column: col1 }, to: { lineNumber, column: col2 } };
             }
         }
-        return false;
+        return null;
     }
 
     static getWordToSearch(editor: monaco.editor.ICodeEditor, pos: monaco.IPosition) {

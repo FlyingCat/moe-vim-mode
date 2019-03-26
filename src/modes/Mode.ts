@@ -1,6 +1,6 @@
 import { ModeName } from "../types";
 import { Remapping, Mapper } from "../configuration";
-import { ICommandContext, executeCommand } from "../command";
+import { ICommandContext, executeCommand } from "../boot/base";
 import * as keyUtils from "../utils/key"
 import { KeyCode } from "../utils/KeyCode";
 import { Program } from "../matching/program";

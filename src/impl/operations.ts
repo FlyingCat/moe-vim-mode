@@ -1,17 +1,14 @@
-import { createSeqMap, addSeqMapItem } from "./matching/seqMap";
-import * as keyUtils from "./utils/key";
-import * as P from "./matching/pattern";
-import * as helper from "./utils/helper";
-import { motionPattern, objectSelectionPattern, MotionFunction, spMotion } from "./motions";
-import { applyMotion } from "./utils/helper";
-import { registerManager } from "./registerManager";
-import { ColumnValue, CursorKind } from "./text/position";
-import { recorder } from "./recorder";
-import { ICommandContext, ICommandArgs, createCommand, ICommand } from "./command";
+import * as P from "../matching/pattern";
+import * as helper from "../utils/helper";
+import { spMotion } from "./motions";
+import { registerManager } from "../registerManager";
+import { ColumnValue, CursorKind } from "../text/position";
+import { recorder } from "../recorder";
+import { ICommandContext, ICommandArgs, ICommand, CommandFunction, IMotion, applyMotion } from "../boot/base";
 import * as monaco from "monaco-editor";
-import { addExRangeCommand } from "./exCommand";
-import { TextReplacePattern } from "./text/replace";
-import { configuration } from "./configuration";
+import { addExRangeCommand } from "../exCommand";
+import { addHistoryPatch } from "./sp/history";
+import { registerCommand } from "../boot/registry";
 
 const enum Source {
     Cursor, // empty char range [cursor, cursor)
@@ -35,6 +32,9 @@ type OperatorArg = OperatorArgUnion & {
 };
 
 //#region utils
+function createCommand(x: ICommand | CommandFunction): ICommand {
+    return typeof x === 'function' ? { run: x } : x;
+}
 
 function linesFromRange(range: monaco.IRange): [number, number] {
     if (range.endColumn === 1 && range.startLineNumber !== range.endLineNumber) {
@@ -100,14 +100,6 @@ function createLineRangeArg(source: Source, commandArgs: ICommandArgs, what: [nu
     }
 }
 
-let FakeNLinesMotion: MotionFunction = (ctx, pos, count) => {
-    let position = ctx.position.get(pos.lineNumber + count - 1, 1);
-    return {
-        position,
-        linewise: true,
-    }
-}
-
 type OperatorFunction = (this: ICommand, ctx: ICommandContext, arg: OperatorArg) => void | PromiseLike<void>;
 
 function createRtlSelection(range: monaco.IRange) {
@@ -130,11 +122,9 @@ function executeEdits(ctx: ICommandContext, edits: monaco.editor.IIdentifiedSing
     })
     ctx.editor.setSelections(selections!);
 }
-
 //#endregion
 
 //#region implements
-
 function deleteLines(ctx: ICommandContext, register: number | undefined, first: number, last: number) {
     let lineCount = ctx.model.getLineCount();
     first = cc(first, lineCount);
@@ -159,7 +149,7 @@ function deleteLines(ctx: ICommandContext, register: number | undefined, first: 
     executeEdits(ctx, {range, text: ''}, () => ctx.position.get(ln, '^'));
 }
 
-export const deleteText: OperatorFunction = (ctx, arg) => {
+const deleteText: OperatorFunction = (ctx, arg) => {
     if (arg.kind === 'LineRange') {
         deleteLines(ctx, arg.commandArgs.register, arg.lines[0], arg.lines[1]);
     }
@@ -314,21 +304,21 @@ const joinLinesPreserveSpaces: OperatorFunction = (ctx, arg) => {
     joinLines(ctx, arg, true);
 }
 
-export const lowerCase: OperatorFunction = (ctx, arg) => {
+const lowerCase: OperatorFunction = (ctx, arg) => {
     let range = coveredRange(ctx, arg);
     let text = ctx.model.getValueInRange(range);
     text = text.toLowerCase();
     executeEdits(ctx, { range, text }, () => ctx.position.soften(range.getStartPosition()));
 }
 
-export const upperCase: OperatorFunction = (ctx, arg) => {
+const upperCase: OperatorFunction = (ctx, arg) => {
     let range = coveredRange(ctx, arg);
     let text = ctx.model.getValueInRange(range);
     text = text.toUpperCase();
     executeEdits(ctx, { range, text }, () => ctx.position.soften(range.getStartPosition()));
 }
 
-export const toggleCase: OperatorFunction = (ctx, arg) => {
+const toggleCase: OperatorFunction = (ctx, arg) => {
     let range: monaco.Range;
     let pos: monaco.IPosition;
     range = coveredRange(ctx, arg);
@@ -452,7 +442,7 @@ const subtractNumberBySequence: OperatorFunction = (ctx, arg) => {
     changeNumber(ctx, arg, 'subtract', true);
 }
 
-export const indent: OperatorFunction = (ctx, arg) => {
+const indent: OperatorFunction = (ctx, arg) => {
     let beforeVersionId = ctx.model.getAlternativeVersionId();
     let beforeCursor = ctx.position.get();
     let mode = ctx.vimState.getMode();
@@ -472,10 +462,10 @@ export const indent: OperatorFunction = (ctx, arg) => {
     let afterVersionId = ctx.model.getAlternativeVersionId();
     let pos = ctx.position.get(lines[0], '^');
     ctx.editor.setPosition(pos);
-    ctx.vimState.addHistoryPatch(beforeVersionId, afterVersionId, beforeCursor, pos);
+    addHistoryPatch(ctx, beforeVersionId, afterVersionId, beforeCursor, pos);
 };
 
-export const outdent: OperatorFunction = (ctx, arg) => {
+const outdent: OperatorFunction = (ctx, arg) => {
     let beforeVersionId = ctx.model.getAlternativeVersionId();
     let beforeCursor = ctx.position.get();
     let mode = ctx.vimState.getMode();
@@ -495,10 +485,10 @@ export const outdent: OperatorFunction = (ctx, arg) => {
     let afterVersionId = ctx.model.getAlternativeVersionId();
     let pos = ctx.position.get(lines[0], '^');
     ctx.editor.setPosition(pos);
-    ctx.vimState.addHistoryPatch(beforeVersionId, afterVersionId, beforeCursor, pos);
+    addHistoryPatch(ctx, beforeVersionId, afterVersionId, beforeCursor, pos);
 };
 
-export const format: OperatorFunction = (ctx, arg) => {
+const format: OperatorFunction = (ctx, arg) => {
     let mode = ctx.vimState.getMode();
     let lines = coveredLines(arg);
     if (mode !== 'Visual' && mode !== 'VisualLine') {
@@ -660,39 +650,38 @@ const yank: OperatorFunction = (ctx, arg) => {
         ctx.editor.setPosition(range.getStartPosition());
     }
 }
-
 //#endregion
 
 type OperatorEntry = {
     action: OperatorFunction,
     isEdit?: boolean, // default true
     shouldRecord?: boolean, // default true
-    ncmdCountChar?: string | string[], // {count}~
-    ncmdCountLine?: string | string[], // {count}J
-    ncmdCursor?: string | string[], // p
+    ncmdCountChar?: string, // {count}~
+    ncmdCountLine?: string, // {count}J
+    ncmdCursor?: string, // p
     nkey?: string, // d{motion}
-    nline?: string[] | string | true, // d{count}d
-    nsynonym?: {[k: string]: MotionFunction},
-    vkey?: string[] | string,
-    vline?: string[] | string, // linewise arg from charwise visual
+    nline?: string | true, // d{count}d
+    nsynonym?: {[k: string]: IMotion},
+    vkey?: string,
+    vline?: string, // linewise arg from charwise visual
 };
 
 let operators: OperatorEntry[] = [
-    {action: deleteText, nkey: 'd', nline: true, vkey: ['d', 'x', '<Del>', '<BS>'], vline: ['X', 'D'], nsynonym: {
-        'x': spMotion.right,
-        '<Del>': spMotion.right,
+    {action: deleteText, nkey: 'd', nline: true, vkey: 'd, x, <Del>, <BS>', vline: 'X, D', nsynonym: {
+        'x, <Del>': spMotion.right,
+        // '<Del>': spMotion.right,
         'X': spMotion.left,
         'D': spMotion.EOL,
     }},
     {action: joinLines, ncmdCountLine: 'J', vkey: 'J'},
-    {action: deleteAndInsert, shouldRecord: false, nkey: 'c', nline: true, ncmdCountLine: 'S', vkey: ['c', 's'], vline: ['C', 'S', 'R'], nsynonym: {
+    {action: deleteAndInsert, shouldRecord: false, nkey: 'c', nline: true, ncmdCountLine: 'S', vkey: 'c, s', vline: 'C, S, R', nsynonym: {
         'C': spMotion.EOL,
         's': spMotion.right,
     }},
     {action: joinLinesPreserveSpaces, ncmdCountLine: 'gJ', vkey: 'gJ'},
-    {action: lowerCase, nkey: 'gu', nline: ['gu', 'u'], vkey: ['gu', 'u']},
-    {action: upperCase, nkey: 'gU', nline: ['gU', 'U'], vkey: ['gU', 'U']},
-    {action: toggleCase, ncmdCountChar: '~', nkey: 'g~', nline: ['g~', '~'], vkey: ['g~', '~']},
+    {action: lowerCase, nkey: 'gu', nline: 'gu, u', vkey: 'gu, u'},
+    {action: upperCase, nkey: 'gU', nline: 'gU, U', vkey: 'gU, U'},
+    {action: toggleCase, ncmdCountChar: '~', nkey: 'g~', nline: 'g~, ~', vkey: 'g~, ~'},
     {action: addNumber, ncmdCursor: '<C-A>', vkey: '<C-A>'},
     {action: subtractNumber, ncmdCursor: '<C-X>', vkey: '<C-X>'},
     {action: addNumberBySequence, vkey: 'g<C-A>'},
@@ -709,36 +698,6 @@ let operators: OperatorEntry[] = [
 
 
 //#region construct commands
-
-type NormalSeqValue = {
-    command: ICommand,
-    motion?: MotionFunction,
-    matchNext?: boolean,
-}
-
-let normalSeqMap = createSeqMap<number, NormalSeqValue>([]);
-let normalCmdPatterns = P.seq(normalSeqMap, (cap, val) => {
-    let value = val as NormalSeqValue;
-    cap.command = value.command;
-    cap.motion = value.motion;
-    return value.matchNext !== true;
-});
-normalCmdPatterns = P.concatList([normalCmdPatterns, P.common.linewisePart, P.alternate(motionPattern, objectSelectionPattern)]);
-
-let normalLinePatterns: P.Pattern[] = [];
-
-let visualSeqMap = createSeqMap<number, ICommand>([]);
-let visualCmdPatterns = P.seq(visualSeqMap, (cap, val) => void(cap.command = val));
-
-function each<T>(what: T | T[], callback: (x: T)=>void) {
-    if (Array.isArray(what)) {
-        what.forEach(x => callback(x));
-    }
-    else {
-        callback(what);
-    }
-}
-
 function doOperator(cmd: ICommand, fn: OperatorFunction, ctx: ICommandContext, arg: OperatorArg, cb: ()=>void): void | PromiseLike<void> {
     return helper.doThen(fn.apply(cmd, [ctx, arg]), cb);
 }
@@ -763,7 +722,7 @@ for (const entry of operators) {
                 ctx.editor.revealPosition(ctx.position.get());
             });
         }});
-        each(entry.ncmdCountChar, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+        registerCommand(entry.ncmdCountChar, 'n', command);
     }
 
     if (entry.ncmdCountLine) {
@@ -781,7 +740,7 @@ for (const entry of operators) {
                 ctx.editor.revealPosition(ctx.position.get());
             });
         }});
-        each(entry.ncmdCountLine, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+        registerCommand(entry.ncmdCountLine, 'n', command);
     }
 
     if (entry.ncmdCursor) {
@@ -798,7 +757,7 @@ for (const entry of operators) {
                 ctx.editor.revealPosition(ctx.position.get());
             });
         }});
-        each(entry.ncmdCursor, x => addSeqMapItem(normalSeqMap, keyUtils.parse(x), { command }));
+        registerCommand(entry.ncmdCursor, 'n', command);
     }
 
     if (entry.nkey) {
@@ -810,7 +769,7 @@ for (const entry of operators) {
                 args.motion = spMotion.altFullWord;
             }
             let result = applyMotion('Operator', ctx, args);
-            if (!result.to) {
+            if (!result) {
                 return;
             }
             let arg: OperatorArg;
@@ -832,36 +791,37 @@ for (const entry of operators) {
                 ctx.editor.revealPosition(ctx.position.get());
             });
         }});
-        addSeqMapItem(normalSeqMap, keyUtils.parse(entry.nkey), { command, matchNext: true });
+        registerCommand([entry.nkey, {kind: 'OperatorMotionHolder'}], 'n', command);
     }
 
     if (entry.nsynonym) {
-        let command = createCommand({shouldRecord, run(ctx, args) {
-            let result = applyMotion('Operator', ctx, args);
-            if (!result.to) {
-                return;
-            }
-            let arg: OperatorArg;
-            let linewise = args.linewise !== undefined ? args.linewise : (result.linewise === true);
-            if (linewise) {
-                arg = createLineRangeArg(Source.Motion, args, [result.from.lineNumber, result.to.lineNumber]);
-            }
-            else {
-                let range = monaco.Range.fromPositions(result.from,  result.inclusive ? ctx.position.get(result.to).move(1) : result.to);
-                arg = createCharRangeArg(Source.Motion, args, range);
-            }
-            if (isEdit) {
-                ctx.editor.pushUndoStop();
-            }
-            return doOperator(this, action, ctx, arg, () => {
+        for (let k in entry.nsynonym) {
+            let motion = entry.nsynonym[k];
+            let command = createCommand({shouldRecord, run(ctx, args) {
+                let result = applyMotion('Operator', ctx, {motion, count: args.count});
+                if (!result) {
+                    return;
+                }
+                let arg: OperatorArg;
+                let linewise = args.linewise !== undefined ? args.linewise : (result.linewise === true);
+                if (linewise) {
+                    arg = createLineRangeArg(Source.Motion, args, [result.from.lineNumber, result.to.lineNumber]);
+                }
+                else {
+                    let range = monaco.Range.fromPositions(result.from,  result.inclusive ? ctx.position.get(result.to).move(1) : result.to);
+                    arg = createCharRangeArg(Source.Motion, args, range);
+                }
                 if (isEdit) {
                     ctx.editor.pushUndoStop();
                 }
-                ctx.editor.revealPosition(ctx.position.get());
-            });
-        }});
-        for (let k in entry.nsynonym) {
-            addSeqMapItem(normalSeqMap, keyUtils.parse(k), { command, motion: entry.nsynonym[k] });
+                return doOperator(this, action, ctx, arg, () => {
+                    if (isEdit) {
+                        ctx.editor.pushUndoStop();
+                    }
+                    ctx.editor.revealPosition(ctx.position.get());
+                });
+            }});
+            registerCommand(k, 'n', command);
         }
     }
 
@@ -883,11 +843,7 @@ for (const entry of operators) {
                 ctx.editor.revealPosition(ctx.position.get());
             });
         }});
-        each(entry.nline, x => {
-            let first = keyUtils.parseToPattern(entry.nkey!);
-            let second = keyUtils.parseToPattern(x);
-            normalLinePatterns.push(P.concatList([first, P.common.countPart, second, P.setCommand(command)]));
-        });
+        registerCommand([entry.nkey, P.common.countPart, entry.nline], 'n', command);
     }
 
     let vcommand = (linewise: boolean) => {
@@ -957,46 +913,43 @@ for (const entry of operators) {
 
     if (entry.vkey) {
         let command = vcommand(false);
-        each(entry.vkey, x => addSeqMapItem(visualSeqMap, keyUtils.parse(x), command));
+        registerCommand(entry.vkey, 'v', command);
     }
 
     if (entry.vline) {
         let command = vcommand(true);
-        each(entry.vline, x => addSeqMapItem(visualSeqMap, keyUtils.parse(x), command));
+        registerCommand(entry.vline, 'v', command);
     }
 }
 
-let nRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, idx) => {
-    let ch = String.fromCharCode(inputs[idx]);
-    cap.command = createCommand({shouldRecord: true, run(ctx, args) {
-        let start = ctx.position.get();
-        let end = ctx.position.get().setColumn(start.column + (args.count || 1));
-        let arg = createCharRangeArg(Source.ByCount, args, monaco.Range.fromPositions(start, end));
-        ctx.editor.pushUndoStop();
-        replaceText(ctx, arg, ch);
-        ctx.editor.pushUndoStop();
-        ctx.editor.revealPosition(ctx.position.get());
-    }});
-}));
+registerCommand(['r', {kind: 'Char'}], 'n', (ctx, args) => {
+    if (!args.char) {
+        throw new Error();
+    }
+    let ch = args.char;
+    let start = ctx.position.get();
+    let end = ctx.position.get().setColumn(start.column + (args.count || 1));
+    let arg = createCharRangeArg(Source.ByCount, args, monaco.Range.fromPositions(start, end));
+    ctx.editor.pushUndoStop();
+    replaceText(ctx, arg, ch);
+    ctx.editor.pushUndoStop();
+    ctx.editor.revealPosition(ctx.position.get());
+});
 
 
-let vRCharPatt = P.concat(P.key('r'), P.capture({kind: 'Char'}, (cap, inputs, idx) => {
-    let ch = String.fromCharCode(inputs[idx]);
-    cap.command = createCommand((ctx, cap) => {
-        let cursor = ctx.position.get();
-        let sel = ctx.editor.getSelection();
-        if (!sel) { throw new Error(); }
-        let arg = ctx.vimState.getMode() === 'VisualLine' ? createLineRangeArg(Source.Visual, cap, sel) : createCharRangeArg(Source.Visual, cap, sel);
-        ctx.editor.pushUndoStop();
-        replaceText(ctx, arg, ch);
-        ctx.editor.pushUndoStop();
-        ctx.editor.revealPosition(ctx.position.get());
-    });
-}));
-
-export const normalOperatorPattern = P.alternateList([normalCmdPatterns, P.alternateList(normalLinePatterns), nRCharPatt]);
-export const visualOperatorPattern = P.alternateList([visualCmdPatterns, vRCharPatt]);
-
+registerCommand(['r', {kind: 'Char'}], 'v', (ctx, args) => {
+    if (!args.char) {
+        throw new Error();
+    }
+    let ch = args.char;
+    let sel = ctx.editor.getSelection();
+    if (!sel) { throw new Error(); }
+    let arg = ctx.vimState.getMode() === 'VisualLine' ? createLineRangeArg(Source.Visual, args, sel) : createCharRangeArg(Source.Visual, args, sel);
+    ctx.editor.pushUndoStop();
+    replaceText(ctx, arg, ch);
+    ctx.editor.pushUndoStop();
+    ctx.editor.revealPosition(ctx.position.get());
+});
 //#endregion
 
 addExRangeCommand({
@@ -1033,95 +986,5 @@ addExRangeCommand({
             ctx.editor.revealPosition(ctx.position.get());
             ctx.vimState.toNormal();
         })
-    }
-});
-
-
-let lastSubstituteRecord = null as {
-    searchString: string;
-    replaceString: string;
-} | null;
-
-function doSubstitute(ctx: ICommandContext, range: {first: number, last: number}, searchString: string, replaceString: string, flags: string, count?: number) {
-    let replacePattern = new TextReplacePattern(replaceString);
-
-    let global = flags.indexOf('g') >= 0;
-
-    let matchCase = !configuration.ignoreCase;
-    if (searchString.startsWith('\\c')) {
-        matchCase = false;
-        searchString = searchString.substring(2);
-    }
-    else if (searchString.startsWith('\\C')) {
-        matchCase = true;
-        searchString = searchString.substring(2);
-    }
-    if (flags.indexOf('I') >= 0) {
-        matchCase = true;
-    }
-    else if (flags.indexOf('i') >= 0) {
-        matchCase = false;
-    }
-
-    if (count) {
-        range = {first: range.last, last: range.last + count - 1};
-    }
-
-    let edits: monaco.editor.IIdentifiedSingleEditOperation[];
-    if (global) {
-        let matches = ctx.model.findMatches(searchString, rangeFromLines(ctx, [range.first, range.last]), true, matchCase, null, true);
-        if (matches.length === 0) {
-            return;
-        }
-        edits = matches.map(m => (
-            {
-                range: m.range,
-                text: replacePattern.run(m.matches!)
-            }
-        ));
-    }
-    else {
-        edits = [];
-        for (let ln = range.first; ln <= range.last; ln++) {
-            let matches = ctx.model.findMatches(searchString, rangeFromLines(ctx, [ln, ln]), true, matchCase, null, true, 1);
-            if (matches.length !== 0) {
-                let m = matches[0];
-                edits.push({range: m.range, text: replacePattern.run(m.matches!)});
-            }
-        }
-    }
-    if (edits.length === 0) {
-        ctx.vimState.outputError('Pattern not found: ' + searchString);
-        return;
-    }
-    ctx.editor.pushUndoStop();
-    executeEdits(ctx, edits, () => ctx.position.get(range.last, '^'));
-    ctx.editor.pushUndoStop();
-    ctx.vimState.toNormal();
-}
-
-addExRangeCommand({
-    matcher: /^s(?:u|ub|ubs|ubst|ubsti|ubstit|ubstitu|ubstitut|ubstitute)?(?:\s*([a-zA-Z]*))?(?:\s*(\d+))?\s*$/,
-    handler(ctx, range, cap: string[]) {
-        if (!lastSubstituteRecord) {
-            ctx.vimState.outputError('No previous substitute regular expression');
-            return;
-        }
-        let {searchString, replaceString} = lastSubstituteRecord;
-        let flags = cap[1] || '';
-        let count = cap[2] ? parseInt(cap[2]) : undefined;
-        return doSubstitute(ctx, range, searchString, replaceString, flags, count);
-    }
-});
-
-addExRangeCommand({
-    matcher: /^s(?:u|ub|ubs|ubst|ubsti|ubstit|ubstitu|ubstitut|ubstitute)?\/([^\/\\]*(?:\\.[^\\\/]*)*)\/([^\/\\]*(?:\\.[^\\\/]*)*)(?:\/([a-zA-Z]*))?(?:\s*(\d+))?\s*$/,
-    handler(ctx, range, cap: string[]) {
-        let searchString = cap[1];
-        let replaceString = cap[2];
-        let flags = cap[3] || '';
-        let count = cap[4] ? parseInt(cap[4]) : undefined;
-        lastSubstituteRecord = { searchString, replaceString };
-        return doSubstitute(ctx, range, searchString, replaceString, flags, count);
     }
 });

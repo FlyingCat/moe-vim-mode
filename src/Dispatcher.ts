@@ -8,31 +8,13 @@ import { KeyCode } from "./utils/KeyCode";
 import * as keyUtils from "./utils/key";
 import { TextPositionFactory } from "./text/position";
 import { configuration } from "./configuration";
-import { ICommandContext, ICommand, ICommandArgs } from "./command";
+import { ICommandContext, ICommand, ICommandArgs } from "./boot/base";
 import * as monaco from "monaco-editor";
 import { ExternalInputWidget } from "./utils/externalInput";
 import { executeExCommand } from "./exCommand";
+import { getContextDataFactory } from "./boot/registry";
 
-export class GlobalState {
-    lastCharMotion?: {
-        kind: 'f' | 'F' | 't' | 'T';
-        char: string;
-    };
-
-    lastSearch?: {
-        direction: 'forward' | 'backward';
-        pattern: ISearchPattern;
-    }
-}
-
-type HistoryPatch = {
-    beforeCursor?: monaco.Position;
-    beforeVersionId: number;
-    afterCursor?: monaco.Position;
-    afterVersionId: number;
-}
-
-const globalState = new GlobalState();
+import "./impl/_importAll"
 
 class CommandContext implements ICommandContext {
     readonly editor: monaco.editor.ICodeEditor;
@@ -50,13 +32,24 @@ class CommandContext implements ICommandContext {
         }
         return model;
     }
-
-    get globalState() {
-        return globalState;
-    }
 }
 
 export class Dispatcher {
+    private contextDataDict: {[k: string]: monaco.IDisposable} = {};
+
+    getContextData<T>(id: string): T {
+        if (this.contextDataDict[id]) {
+            return <T><any>this.contextDataDict[id];
+        }
+        let f = getContextDataFactory(id);
+        if (!f) {
+            throw new Error();
+        }
+        let d = f(this)
+        this.contextDataDict[id] = d;
+        return <T><any>d;
+    }
+
     //#region vim state
     public desiredColumn: number | 'eol' = 1;
     public previousVisual?: {
@@ -78,7 +71,7 @@ export class Dispatcher {
 
     private subscriptions: monaco.IDisposable[] = [];
 
-    private commandContext: ICommandContext;
+    public commandContext: ICommandContext;
 
     private currentModeName!: ModeName;
     private currentMode!: Mode;
@@ -141,6 +134,9 @@ export class Dispatcher {
     }
 
     dispose() {
+        for (const k in this.contextDataDict) {
+            this.contextDataDict[k].dispose();
+        }
         this.currentMode.leave();
         this.normalMode.dispose();
         this.insertMode.dispose();
@@ -377,68 +373,5 @@ export class Dispatcher {
 
     handleLostFocus() {
         this.currentMode.discardInputBuffer();
-    }
-
-    private historyPatches = new Map<number, HistoryPatch>();
-
-    addHistoryPatch(beforeVersionId: number, afterVersionId: number, beforeCursor?: monaco.IPosition, afterCursor?: monaco.IPosition) {
-        let item: HistoryPatch = {beforeVersionId, afterVersionId};
-        if (beforeCursor) {
-            item.beforeCursor = monaco.Position.lift(beforeCursor);
-        }
-        if (afterCursor) {
-            item.afterCursor = monaco.Position.lift(afterCursor);
-        }
-        this.historyPatches.set(beforeVersionId, item);
-        this.historyPatches.set(afterVersionId, item);
-    }
-
-    undo(): number {
-        let model = this.model;
-        let versionId = model.getAlternativeVersionId();
-        let item = this.historyPatches.get(versionId);
-        if (item && item.afterVersionId == versionId) {
-            while (versionId !== item.beforeVersionId) {
-                this.editor.trigger('vim', 'undo', null);
-                let vid = model.getAlternativeVersionId();
-                if (vid === versionId) {
-                    return vid;
-                }
-                versionId = vid;
-            }
-            if (item.beforeCursor) {
-                this.editor.setPosition(this.commandContext.position.soften(item.beforeCursor));
-            }
-            return versionId;
-        }
-        else {
-            this.editor.trigger('vim', 'undo', null);
-            return model.getAlternativeVersionId();
-        }
-    }
-
-    redo(): number {
-        let model = this.model;
-        let versionId = model.getAlternativeVersionId();
-        let item = this.historyPatches.get(versionId);
-        if (item && item.beforeVersionId == versionId) {
-            // fact: altVerId equals verId after any non-undo-redo change
-            while (versionId < item.afterVersionId) {
-                this.editor.trigger('vim', 'redo', null);
-                let vid = model.getAlternativeVersionId();
-                if (vid === versionId) {
-                    return vid;
-                }
-                versionId = vid;
-            }
-            if (versionId === item.afterVersionId && item.afterCursor) {
-                this.editor.setPosition(this.commandContext.position.soften(item.afterCursor));
-            }
-            return versionId;
-        }
-        else {
-            this.editor.trigger('vim', 'redo', null);
-            return model.getAlternativeVersionId();
-        }
     }
 }

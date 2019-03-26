@@ -1,94 +1,73 @@
 import { SeqMap } from "./seqMap";
-import { MotionFunction } from "../motions";
-import { ICommand } from "../command";
+import { IMotion, ICommand } from "../boot/base";
 
 export interface IMatchCapture {
     command?: ICommand;
     count?: number;
-    motion?: MotionFunction;
+    motion?: IMotion;
     register?: number;
     linewise?: boolean;
     char?: string;
 }
 
-interface Key {
+export type CapAction = (c: IMatchCapture, inputs: number[], index: number) => void;
+
+export type Pattern = {
     kind: 'Key';
     key: number;
-}
-
-interface Range {
+} | {
     kind: 'Range';
     from: number;
     to: number;
-}
-
-interface Digit {
+} | {
     kind: 'Digit';
     nonZero?: boolean;
-}
-
-interface Char {
-    kind: 'Char';
-}
-
-interface Reg {
-    kind: 'Reg';
-}
-
-interface Cat {
+} | {
     kind: 'Cat';
     left: Pattern;
     right: Pattern;
-}
-
-interface Alt {
+} | {
     kind: 'Alt';
     left: Pattern;
     right: Pattern;
-}
-
-interface Opt {
+} | {
     kind: 'Opt';
     child: Pattern;
-}
-
-interface Plus {
+} | {
     kind: 'Plus';
     child: Pattern;
-}
-
-interface Star {
+} | {
     kind: 'Star';
     child: Pattern;
-}
-
-interface Routine {
+} | {
     kind: 'Routine';
     child: Pattern;
-}
-
-export type SeqAction = (c: IMatchCapture, v: any) => void | boolean;
-
-interface Seq {
-    kind: 'Seq';
-    target: SeqMap<number, any>;
-    action: SeqAction;
-}
-
-interface Set {
-    kind: 'Set';
-    target: { which: 'command', value: ICommand } | { which: 'motion', value: MotionFunction } | { which: 'linewise', value: boolean };
-}
-
-export type CapAction = (c: IMatchCapture, inputs: number[], index: number) => void;
-
-interface Cap {
+} | {
     kind: 'Cap';
     child: Pattern;
     action: CapAction;
+} | {
+    kind: 'WriteMotion';
+    value: IMotion;
+} | {
+    kind: 'WriteCommand';
+    value: ICommand;
+} | {
+    kind: 'WriteLinewise';
+    value: boolean;
+} | {
+    kind: 'MotionHolder';
+} | {
+    kind: 'TextObjectHolder';
+} | {
+    kind: 'OperatorMotionHolder';
+} | {
+    kind: 'Mark';
+} | {
+    kind: 'Char';
+} | {
+    kind: 'Reg';
 }
-
-export type Pattern = Key | Range | Digit | Char | Reg | Cat | Alt | Opt | Plus | Star | Seq | Set | Cap | Routine;
 
 export function key(s: number | string, i = 0): Pattern {
     let key = typeof s === 'number' ? s : s.charCodeAt(i);
@@ -100,10 +79,6 @@ export function range(s: string): Pattern {
         throw new Error();
     }
     return { kind: 'Range', from: s.charCodeAt(0), to: s.charCodeAt(1) };
-}
-
-export function keyList(s: number[]): Pattern {
-    return concatList(s.map(x => key(x)));
 }
 
 export function digit(nonZero = false): Pattern {
@@ -152,24 +127,26 @@ export function repeat(child: Pattern, atLeastOnce?: boolean): Pattern {
     return atLeastOnce ? {kind: 'Plus', child} : {kind: 'Star', child};
 }
 
-export function seq(target: SeqMap<number, any>, action: SeqAction): Pattern {
-    return {kind: 'Seq', target, action};
+export function writeCommand(value: ICommand): Pattern {
+    return {kind: 'WriteCommand', value};
 }
 
-export function setCommand(value: ICommand): Pattern {
-    return {kind: 'Set', target: {which: 'command', value}};
+export function writeMotion(value: IMotion): Pattern {
+    return {kind: 'WriteMotion', value};
 }
 
-export function setMotion(value: MotionFunction): Pattern {
-    return {kind: 'Set', target: {which: 'motion', value}};
-}
-
-export function setLinewise(value: boolean): Pattern {
-    return {kind: 'Set', target: {which: 'linewise', value}};
+export function writeLinewise(value: boolean): Pattern {
+    return {kind: 'WriteLinewise', value};
 }
 
 export function capture(child: Pattern, action: CapAction): Pattern {
     return {kind: 'Cap', child, action};
+}
+
+export namespace holders {
+    export const motion: Pattern = { kind: 'MotionHolder' };
+    export const TextObject: Pattern = { kind: 'TextObjectHolder' };
+    export const OperatorMotion: Pattern = { kind: 'OperatorMotionHolder' };
 }
 
 export namespace common {
@@ -183,14 +160,14 @@ export namespace common {
         c.count = val * (c.count || 1);
     }
 
-    export const countPart: Pattern = routine(optional(capture(integer, setCountValue)));
+    export const countPart: Pattern = (optional(capture(integer, setCountValue)));
 
     export const explicitCountPart: Pattern = capture(integer, setCountValue);
 
     export const linewisePart: Pattern = optional(
         alternate(
-            concat(key('v'), setLinewise(false)),
-            concat(key('V'), setLinewise(true))
+            concat(key('v'), writeLinewise(false)),
+            concat(key('V'), writeLinewise(true))
         )
     );
 

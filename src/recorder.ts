@@ -1,5 +1,5 @@
-import { ICommand, ICommandArgs, ICommandContext, executeCommand } from "./command";
-import { cloneCommandArgs, doThen } from "./utils/helper";
+import { ICommand, ICommandArgs, ICommandContext, executeCommand } from "./boot/base";
+import { doThen } from "./utils/helper";
 
 export interface IRepeatableAction {
     setCount(value: number): void;

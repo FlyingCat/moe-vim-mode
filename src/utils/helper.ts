@@ -1,5 +1,4 @@
-import { MotionSource } from "../motions";
-import { ICommandContext, ICommandArgs } from "../command";
+import { ICommandArgs, ICommandContext } from "../boot/base";
 import * as monaco from "monaco-editor";
 
 type ApplyMotionResult = {
@@ -12,6 +11,25 @@ type ApplyMotionResult = {
     isJump?: boolean;
 }
 
+export function rangeFromLines(ctx: ICommandContext, lines: [number, number]) {
+    let start = {lineNumber: lines[0], column: 1};
+    let end = {lineNumber: lines[1], column: ctx.model.getLineMaxColumn(lines[1])};
+    return monaco.Range.fromPositions(start, end);
+}
+
+export function executeEdits(ctx: ICommandContext, edits: monaco.editor.IIdentifiedSingleEditOperation | monaco.editor.IIdentifiedSingleEditOperation[], position: () => monaco.IPosition) {
+    if (!Array.isArray(edits)) {
+        edits = [edits];
+    }
+    let selections: monaco.Selection[];
+    ctx.model.pushEditOperations(ctx.editor.getSelections()!, edits, () => {
+        let pos = position();
+        selections = [monaco.Selection.fromPositions(pos, pos)];
+        return selections;
+    })
+    ctx.editor.setSelections(selections!);
+}
+
 export function cloneCommandArgs(args: ICommandArgs, setter?: Partial<ICommandArgs>) {
     return Object.assign({
         count: args.count,
@@ -20,22 +38,6 @@ export function cloneCommandArgs(args: ICommandArgs, setter?: Partial<ICommandAr
         linewise: args.linewise,
         char: args.char,
     }, setter);
-}
-
-export function applyMotion(source: MotionSource, ctx: ICommandContext, mst: ICommandArgs, from?: monaco.IPosition): ApplyMotionResult {
-    if (!from) {
-        from = ctx.editor.getPosition()!;
-    }
-    let ret = mst.motion!(ctx, from, mst.count || 1, source, mst.count === undefined);
-    if (ret === false) {
-        return { from };
-    }
-    else if (monaco.Position.isIPosition(ret)) {
-        return { from, to: ret };
-    }
-    else {
-        return Object.assign(ret, {from: ret.from || from, to: ret.position});
-    }
 }
 
 export function splitRangeByLineEnding(model: monaco.editor.ITextModel, range: monaco.IRange): monaco.Range[] {

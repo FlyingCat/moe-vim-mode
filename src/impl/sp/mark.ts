@@ -1,39 +1,31 @@
 import * as monaco from "monaco-editor";
-import { ICommandContext } from "../command";
-
-let modelRegistry = new Map<string, MarkModel>();
+import { ICommandContext } from "../../boot/base";
+import { registerCommand, registerMotion, registerContextDataFactory } from "../../boot/registry";
+import { convertToMarkId } from "./markCommon";
 
 class MarkModel {
-    private editorId: string;
-
     private marks = new Map<string, monaco.IPosition>();
 
     private removedMarks = new Map<number, {name: string, position: monaco.IPosition}[]>();
 
     private prevVersionId: number;
 
-    private constructor(readonly editor: monaco.editor.ICodeEditor) {
-        this.editorId = this.editor.getId();
+    private subcriptions: monaco.IDisposable[] = [];
+
+    constructor(readonly editor: monaco.editor.ICodeEditor) {
         this.prevVersionId = this.editor.getModel()!.getAlternativeVersionId();
-        this.editor.onDidDispose(() => {
-            modelRegistry.delete(this.editorId);
-        });
-        this.editor.onDidChangeModelContent(e => {
+        this.subcriptions.push(this.editor.onDidChangeModelContent(e => {
             if (e.changes.length !== 0) {
                 this.onTextChanged(e);
             }
             this.prevVersionId = this.editor.getModel()!.getAlternativeVersionId();
-        });
+        }));
     }
 
-    static create(editor: monaco.editor.ICodeEditor) {
-        let editorId = editor.getId();
-        let instance = modelRegistry.get(editorId);
-        if (!instance) {
-            instance = new MarkModel(editor);
-            modelRegistry.set(editorId, instance);
+    dispose() {
+        for (const s of this.subcriptions) {
+            s.dispose();
         }
-        return instance;
     }
 
     getMark(name: string): monaco.IPosition | undefined {
@@ -91,6 +83,8 @@ class MarkModel {
     }
 }
 
+registerContextDataFactory('mark', d => new MarkModel(d.editor))
+
 type MarkAccessor = {
     get(ctx: ICommandContext): monaco.IPosition | undefined;
     set(ctx: ICommandContext, pos: monaco.IPosition): void;
@@ -143,24 +137,58 @@ const specialMarks: {[k: string]: MarkAccessor} = {
     },
 }
 
-export class TextMark {
-    static get(ctx: ICommandContext, name: string): monaco.IPosition | undefined {
-        if (specialMarks[name]) {
-            return specialMarks[name].get(ctx);
-        }
-        else {
-            let instance = MarkModel.create(ctx.editor);
-            return instance.getMark(name);
-        }
+function get(ctx: ICommandContext, id: string): monaco.IPosition | undefined {
+    if (specialMarks[id]) {
+        return specialMarks[id].get(ctx);
     }
-
-    static set(ctx: ICommandContext, name: string, pos: monaco.IPosition) {
-        if (specialMarks[name]) {
-            specialMarks[name].set(ctx, pos);
-        }
-        else {
-            let instance = MarkModel.create(ctx.editor);
-            instance.setMark(name, pos);
-        }
+    else {
+        return ctx.vimState.getContextData<MarkModel>('mark').getMark(id);
     }
 }
+
+export function getMarkByName(ctx: ICommandContext, name: string): monaco.IPosition | undefined {
+    if (name.length === 1) {
+        let id = convertToMarkId(name.charCodeAt(0));
+        if (id) {
+            return get(ctx, id);
+        }
+    }
+    return undefined;
+}
+
+function set(ctx: ICommandContext, id: string, pos: monaco.IPosition) {
+    if (specialMarks[id]) {
+        specialMarks[id].set(ctx, pos);
+    }
+    else {
+        ctx.vimState.getContextData<MarkModel>('mark').setMark(id, pos);
+    }
+}
+
+export function setMarkByName(ctx: ICommandContext, name: string, pos: monaco.IPosition) {
+    if (name.length === 1) {
+        let id = convertToMarkId(name.charCodeAt(0));
+        if (id) {
+            set(ctx, id, pos);
+            return;
+        }
+    }
+    throw new Error();
+}
+
+registerCommand(['m', {kind: 'Mark'}], 'n', (ctx, args) => {
+    let cursor = ctx.position.get();
+    set(ctx, args.mark!, cursor);
+});
+
+registerMotion(["'", {kind: 'Mark'}], { isJump: true, run: (ctx, pos, count, _a, _b, args) => {
+    let mark = get(ctx, args.mark!);
+    if (mark) {
+        return ctx.position.get(mark.lineNumber, '^');
+    }
+    return null;
+}});
+
+registerMotion(["`", {kind: 'Mark'}], { isJump: true, run: (ctx, pos, count, _a, _b, args) => {
+    return get(ctx, args.mark!) || null;
+}});

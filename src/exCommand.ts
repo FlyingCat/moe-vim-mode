@@ -1,7 +1,6 @@
 import { configuration } from "./configuration";
-import { ICommandContext, executeCommand } from "./command";
-import { TextSearch } from "./text/search";
-import { TextMark } from "./text/mark";
+import { ICommandContext, executeCommand } from "./boot/base";
+import { getMarkByName } from "./impl/sp/mark";
 
 type OptionUnion = {
     type: 'boolean';
@@ -149,12 +148,7 @@ const exCommands: IExCommand[] = [
                 configuration.vmap.addString(cap[2], cap[3]);
             }
         }
-    }, {
-        matcher: /^noh(?:l|ls|lse|lsea|lsear|lsearc|lsearch)?\s*$/,
-        handler() {
-            TextSearch.noHighLight();
-        }
-    }
+    },
 ];
 
 export function addExCommand(command: IExCommand) {
@@ -282,7 +276,7 @@ function resolveRangeLine(ctx: ICommandContext, val: RangeLine): number | string
         ln = lineCount;
     }
     else {
-        let markPos = TextMark.get(ctx, val.name);
+        let markPos = getMarkByName(ctx, val.name);
         if (!markPos) {
             return 'Invalid mark';
         }

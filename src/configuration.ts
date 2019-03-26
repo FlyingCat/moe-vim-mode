@@ -2,7 +2,6 @@ import { ModeName, IConfiguration, IMapper } from "./types";
 import { SeqMap, createSeqMap, addSeqMapItem, searchSeqMap } from "./matching/seqMap";
 import { parse } from "./utils/key";
 import * as monaco from "monaco-editor";
-import { TextSearch } from "./text/search";
 
 type Action = (editor: monaco.editor.ICodeEditor) => void | PromiseLike<void>;
 
@@ -125,12 +124,62 @@ export class Remapping {
 }
 
 class Configuration implements IConfiguration {
+    private callbacks: { [k: string]: (() => void)[] } = {}
+
+    private invokeCallback(name: string) {
+        let list = this.callbacks[name];
+        if (list) {
+            for (const cb of list) {
+                cb();
+            }
+        }
+    }
+
+    onOptionChanged(name: string, cb: () => void) {
+        let list = this.callbacks[name];
+        if (!list) {
+            list = [cb];
+            this.callbacks[name] = list;
+        }
+        list.push(cb);
+    }
+
     // inclusiveSelect = true;
     startInInsertMode = false;
     enterInsertModeIfSelectOutsideVim = false;
-    ignoreCase = false;
-    smartCase = true;
-    incrementalSearch = true;
+
+    private _ignoreCase = false;
+    get ignoreCase() {
+        return this._ignoreCase;
+    }
+    set ignoreCase(value: boolean) {
+        if (this._ignoreCase !== value) {
+            this._ignoreCase = value;
+            this.invokeCallback('ignoreCase');
+        }
+    }
+
+    private _smartCase = true;
+    get smartCase() {
+        return this._smartCase;
+    }
+    set smartCase(value: boolean) {
+        if (this._smartCase !== value) {
+            this._smartCase = value;
+            this.invokeCallback('smartCase');
+        }
+    }
+
+    private _incrementalSearch = true;
+    get incrementalSearch() {
+        return this._incrementalSearch;
+    }
+    set incrementalSearch(value: boolean) {
+        if (this._incrementalSearch !== value) {
+            this._incrementalSearch = value;
+            this.invokeCallback('incrementalSearch');
+        }
+    }
 
     private _highlightSearch = true;
     get highlightSearch() {
@@ -139,7 +188,7 @@ class Configuration implements IConfiguration {
     set highlightSearch(value: boolean) {
         if (this._highlightSearch !== value) {
             this._highlightSearch = value;
-            TextSearch.notifyHighlightSearchOptionChanged();
+            this.invokeCallback('highlightSearch');
         }
     }
 
