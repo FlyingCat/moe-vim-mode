@@ -14,6 +14,7 @@ export interface IMotion {
     readonly desiredColumnAtEol?: boolean;
     readonly linewise?: boolean;
     readonly isJump?: boolean;
+    readonly makeSelection?: boolean;
     readonly run: MotionFunction;
 }
 

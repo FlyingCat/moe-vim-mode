@@ -155,7 +155,7 @@ class TextSearch {
         return SearchModel.create(editor);
     }
 
-    static search(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, direction: 'forward' | 'backward', count = 1, isActual = true): monaco.IPosition | null {
+    static search(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, direction: 'forward' | 'backward', count = 1, isActual = true): monaco.Range | null {
         if (direction === 'forward') {
             return this.searchNext(ctx, pos, pattern, count, isActual);
         }
@@ -164,7 +164,30 @@ class TextSearch {
         }
     }
 
-    static searchNext(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, count = 1, isActual = true): monaco.IPosition | null {
+    private static containsPosition(range: monaco.IRange, position: monaco.IPosition): boolean {
+        if (position.lineNumber < range.startLineNumber || position.lineNumber > range.endLineNumber) {
+            return false;
+        }
+        if (position.lineNumber === range.startLineNumber && position.column < range.startColumn) {
+            return false;
+        }
+        if (position.lineNumber === range.endLineNumber && position.column >= range.endColumn) {
+            return false;
+        }
+        return true;
+    }
+
+    static isAtMatch(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern): monaco.Range | null {
+        let ranges = SearchModel.create(ctx.editor).search(pattern);
+        for (const range of ranges) {
+            if (TextSearch.containsPosition(range, pos)) {
+                return range;
+            }
+        }
+        return null;
+    }
+
+    static searchNext(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, count = 1, isActual = true): monaco.Range | null {
         if (isActual) {
             TextSearch.trunOffNoHightLight();
         }
@@ -172,24 +195,27 @@ class TextSearch {
         if (ranges.length === 0) {
             return null;
         }
+        let result: monaco.Range | null = null;
         while (count > 0) {
             let found = false;
             for (const range of ranges) {
                 if (range.startLineNumber > pos.lineNumber || (range.startLineNumber === pos.lineNumber && range.startColumn > pos.column)) {
                     found = true;
                     pos = range.getStartPosition();
+                    result = range;
                     break;
                 }
             }
             if (!found) {
                 pos = ranges[0].getStartPosition();
+                result = ranges[0];
             }
             count--;
         }
-        return pos;
+        return result;
     }
 
-    static searchPrev(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, count = 1, isActual = true): monaco.IPosition | null {
+    static searchPrev(ctx: ICommandContext, pos: monaco.IPosition, pattern: ISearchPattern, count = 1, isActual = true): monaco.Range | null {
         if (isActual) {
             TextSearch.trunOffNoHightLight();
         }
@@ -197,6 +223,7 @@ class TextSearch {
         if (ranges.length === 0) {
             return null;
         }
+        let result: monaco.Range | null = null;
         while (count > 0) {
             let found = false;
             for (let i = ranges.length - 1; i >=0; i--) {
@@ -204,15 +231,17 @@ class TextSearch {
                 if (range.startLineNumber < pos.lineNumber || (range.startLineNumber === pos.lineNumber && range.endColumn <= pos.column)) {
                     found = true;
                     pos = range.getStartPosition();
+                    result = range;
                     break;
                 }
             }
             if (!found) {
                 pos = ranges[ranges.length - 1].getStartPosition();
+                result = ranges[ranges.length - 1];
             }
             count--;
         }
-        return pos;
+        return result;
     }
 
     static notifyHighlightSearchOptionChanged() {
@@ -239,7 +268,7 @@ registerMotion('*', (ctx, pos, count) => {
         let pattern = {searchString, wholeWord: true, isRegex: false, matchCase: !configuration.ignoreCase};
         gLastSearch = {direction: 'forward', pattern};
         let result = TextSearch.searchNext(ctx, start, pattern, count);
-        return result;
+        return result && result.getStartPosition();
     }
     return null;
 });
@@ -249,7 +278,7 @@ registerMotion('g*', (ctx, pos, count) => {
         let pattern = {searchString, wholeWord: false, isRegex: false, matchCase: !configuration.ignoreCase};
         gLastSearch = {direction: 'forward', pattern};
         let result = TextSearch.searchNext(ctx, start, pattern, count);
-        return result;
+        return result && result.getStartPosition();
     }
     return null;
 });
@@ -259,7 +288,7 @@ registerMotion('#', (ctx, pos, count) => {
         let pattern = {searchString, wholeWord: true, isRegex: false, matchCase: !configuration.ignoreCase};
         gLastSearch = {direction: 'backward', pattern};
         let result = TextSearch.searchPrev(ctx, start, pattern, count);
-        return result;
+        return result && result.getStartPosition();
     }
     return null;
 });
@@ -269,7 +298,7 @@ registerMotion('g#', (ctx, pos, count) => {
         let pattern = {searchString, wholeWord: false, isRegex: false, matchCase: !configuration.ignoreCase};
         gLastSearch = {direction: 'backward', pattern};
         let result = TextSearch.searchPrev(ctx, start, pattern, count);
-        return result;
+        return result && result.getStartPosition();
     }
     return null;
 });
@@ -280,7 +309,7 @@ registerMotion('n', {isJump: true, run: (ctx, pos, count) => {
         return null;
     }
     let result = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'forward' : 'backward', count);
-    return result;
+    return result && result.getStartPosition();
 }});
 registerMotion('N', {isJump: true, run: (ctx, pos, count) => {
     let lastSearch = gLastSearch;
@@ -289,7 +318,71 @@ registerMotion('N', {isJump: true, run: (ctx, pos, count) => {
         return null;
     }
     let result = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'backward' : 'forward', count);
-    return result;
+    return result && result.getStartPosition();
+}});
+
+registerMotion('gn', {makeSelection: true, run: (ctx, pos, count, source) => {
+    let lastSearch = gLastSearch;
+    if (!lastSearch) {
+        ctx.vimState.outputError('No previous regular expression')
+        return null;
+    }
+    let range = TextSearch.isAtMatch(ctx, pos, lastSearch.pattern);
+    if (range) {
+        count--;
+        if (source === 'Select') {
+            if (monaco.Position.equals(pos, range.getEndPosition())) {
+                count++;
+            }
+        }
+    }
+    if (count > 0) {
+        range = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'forward' : 'backward', count);
+    }
+    if (!range) {
+        return null;
+    }
+    if (source === 'Select') {
+        let target = range.getEndPosition();
+        if (monaco.Position.isBeforeOrEqual(pos, target)) {
+            return target;
+        }
+        else {
+            return ctx.position.get(target).move(-1);
+        }
+    }
+    else {
+        return { from: range.getStartPosition(), to: range.getEndPosition() };
+    }
+}});
+
+registerMotion('gN', {makeSelection: true, run: (ctx, pos, count, source) => {
+    let lastSearch = gLastSearch;
+    if (!lastSearch) {
+        ctx.vimState.outputError('No previous regular expression')
+        return null;
+    }
+    let range = TextSearch.isAtMatch(ctx, pos, lastSearch.pattern);
+    if (range) {
+        count--;
+        if (source === 'Select') {
+            if (monaco.Position.equals(pos, range.getStartPosition())) {
+                count++;
+            }
+        }
+    }
+    if (count > 0) {
+        range = TextSearch.search(ctx, pos, lastSearch.pattern, lastSearch.direction === 'forward' ? 'backward' : 'forward', count);
+    }
+    if (!range) {
+        return null;
+    }
+    if (source === 'Select') {
+        return range.getStartPosition();
+    }
+    else {
+        return { from: range.getEndPosition(), to: range.getStartPosition() };
+    }
 }});
 //#endregion
 
@@ -338,7 +431,8 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
         }
         let pattern = {searchString, wholeWord: false, isRegex: true, matchCase};
         let start = ctx.editor.getPosition()!;
-        return TextSearch.searchNext(ctx, start, pattern, args.count, false);
+        let result = TextSearch.searchNext(ctx, start, pattern, args.count, false);
+        return result && result.getStartPosition();
     }
     function onTextChange(text: string) {
         TextSearch.isInc = true;
@@ -396,7 +490,7 @@ function searchPattern(ctx: ICommandContext, args: ICommandArgs, direction: 'for
         let start = ctx.editor.getPosition()!;
         let result = TextSearch.searchNext(ctx, start, pattern, args.count);
         if (result) {
-            let pos = ctx.position.soften(result);
+            let pos = ctx.position.soften(result.getStartPosition());
             ctx.editor.setPosition(pos);
             ctx.editor.revealPosition(pos);
         }

@@ -112,33 +112,60 @@ registerCommand(P.holders.motion, '~n', (ctx, mst) => {
     if (!selections) {
         return;
     }
+    if (!mst.motion) {
+        throw new Error();
+    }
     ctx.vimState.isMovingCursorByMotion = true;
     let failedCount = 0;
     let primaryPos = ctx.editor.getPosition()!;
-    let cursors = selections.map((x, i) => {
-        let result = applyMotion('Move', ctx, mst, x.getPosition());
-        if (result) {
-            let pos = ctx.position.get(result.to.lineNumber, result.to.column).soft();
-            if (i === 0) {
-                if (result.isJump && !monaco.Position.equals(primaryPos, pos)) {
-                    setMarkByName(ctx, "'", primaryPos);
+    if (mst.motion.makeSelection !== true) {
+        let cursors = selections.map((x, i) => {
+            let result = applyMotion('Move', ctx, mst, x.getPosition());
+            if (result) {
+                let pos = ctx.position.get(result.to.lineNumber, result.to.column).soft();
+                if (i === 0) {
+                    if (result.isJump && !monaco.Position.equals(primaryPos, pos)) {
+                        setMarkByName(ctx, "'", primaryPos);
+                    }
+                    if (result.keepPrevDesiredColumn !== true) {
+                        ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
+                    }
                 }
-                if (result.keepPrevDesiredColumn !== true) {
-                    ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
-                }
+                return pos;
             }
-            return pos;
+            else {
+                failedCount++;
+                return x.getPosition();
+            }
+        });
+        if (failedCount === cursors.length) {
+            ctx.vimState.beep();
+        }
+        ctx.editor.setSelections(mergePositions(cursors).map(x => monaco.Selection.fromPositions(x, x)));
+        ctx.editor.revealPosition(cursors[0]);
+    }
+    else {
+        let newSelections: monaco.Selection[] = [];
+        selections.forEach(x => {
+            let result = applyMotion('Move', ctx, mst, x.getPosition());
+            if (result) {
+                let ltr = monaco.Position.isBeforeOrEqual(result.from, result.to);
+                let start = ltr || !result.inclusive ? result.from : ctx.position.get(result.from).move(1);
+                let end = !ltr || !result.inclusive ? result.to : ctx.position.get(result.to).move(1);
+                newSelections.push(monaco.Selection.fromPositions(start, end));
+            }
+        });
+        if (newSelections.length > 0) {
+            if (mst.motion.keepPrevDesiredColumn !== true) {
+                ctx.vimState.desiredColumn = mst.motion.desiredColumnAtEol ? 'eol' : newSelections[0].getPosition().column;
+            }
+            ctx.vimState.toVisual(newSelections)
+            ctx.editor.revealRange(newSelections[0]);
         }
         else {
-            failedCount++;
-            return x.getPosition();
+            ctx.vimState.beep();
         }
-    });
-    if (failedCount === cursors.length) {
-        ctx.vimState.beep();
     }
-    ctx.editor.setSelections(mergePositions(cursors).map(x => monaco.Selection.fromPositions(x, x)));
-    ctx.editor.revealPosition(cursors[0]);
     ctx.vimState.isMovingCursorByMotion = false;
 });
 //#endregion
@@ -157,7 +184,7 @@ registerCommand(P.holders.motion, '~V', (ctx, mst) => {
         let selectionStart = new monaco.Position(x.selectionStartLineNumber, x.selectionStartColumn);
         let result = applyMotion('Select', ctx, mst, x.getPosition());
         if (result) {
-            let pos = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
+            let pos = monaco.Position.isBeforeOrEqual(selectionStart, result.to) && result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
             if (i === 0) {
                 if (result.isJump && !monaco.Position.equals(primaryPos, pos)) {
                     setMarkByName(ctx, "'", primaryPos);
@@ -271,7 +298,7 @@ registerCommand(P.holders.motion, '~L', (ctx, mst) => {
         let cursor: monaco.IPosition = {lineNumber: x.positionLineNumber, column: x.positionColumn};
         let result = applyMotion('Move', ctx, mst, cursor);
         if (result) {
-            let target = result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
+            let target = monaco.Position.isBeforeOrEqual(start, result.to) && result.inclusive ? ctx.position.get(result.to).move(1) : result.to;
             if (result.keepPrevDesiredColumn !== true) {
                 ctx.vimState.desiredColumn = result.desiredColumnAtEol ? 'eol' : result.to.column;
             }

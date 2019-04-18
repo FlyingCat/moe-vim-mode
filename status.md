@@ -152,6 +152,8 @@ __not supported__
 |   ✓   |   #   |   Same as "*", but search backward   |
 |   ✓   |   g*   |   Like "*", but also find matches that are not a whole word   |
 |   ✓   |   g#   |   Like "#", but also find matches that are not a whole word   |
+|   ✓   |   gn   |   Search forward for the last used search pattern and start Visual mode to select the match   |
+|   ✓   |   gN   |   Like gn but searches backward   |
 
 
 ## scrolling

@@ -1,7 +1,7 @@
 import { FROM } from "../editorBox";
 
 FROM({
-    suit: 'up-down motions',
+    suit: 'pattern search motions',
     text: ['  abc  abc', 'aabcc++abc'],
 })
 .TEST('forward - whole word')
@@ -40,4 +40,16 @@ FROM({
     .next({ input: 'N', cursor: [2, 2] })
     .next({ input: 'N', cursor: [2, 8] })
     .next({ input: 'N', cursor: [1, 3] })
+.TEST('gn')
+    .next({ input: '*gn', selection: [1, 8, 1, 11] })
+    .next({ input: 'gn', selection: [1, 8, 2, 11] })
+    .next({ input: 'gn', selection: [1, 8, 1, 5] })
+    .next({ input: '<ESC>cgn*<ESC>.', line: [1, '  *  *'] })
+    .next({ input: '...', line: [2, 'aabcc++*'] })
+.TEST('gN')
+    .next({ input: '*gN', selection: [1, 11, 1, 8] })
+    .next({ input: 'gN', selection: [1, 11, 1, 3] })
+    .next({ input: 'gN', selection: [1, 11, 2, 8] })
+    .next({ input: '<ESC>cgn*<ESC>', line: [2, 'aabcc++*'] })
+    .next({ input: '....', line: [1, '  *  *'] })
 .RUN()
