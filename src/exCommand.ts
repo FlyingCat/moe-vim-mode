@@ -191,7 +191,7 @@ function findCommand<T>(commands: {matcher: Matcher, handler: T}[], text: string
 
 export function executeExCommand(ctx: ICommandContext, text: string): void | PromiseLike<void> {
     text = text.replace(/^\s+/, '');
-    let range: {range: [RangeLine, RangeLine], next: number} | null = null;
+    let range: {range: RangeLine[], next: number} | null = null;
     try {
         range = new RangeParser(text).match();
     }
@@ -200,29 +200,20 @@ export function executeExCommand(ctx: ICommandContext, text: string): void | Pro
         return;
     }
     if (range) {
+        let rangeResult = resolveRange(ctx, range.range);
+        if (typeof rangeResult === 'string') {
+            ctx.vimState.outputError(rangeResult);
+            return;
+        }
         text = text.substring(range.next);
         if (text === '') {
-            let ln = resolveRangeLine(ctx, range.range[1]);
-            if (typeof ln === 'string') {
-                ctx.vimState.outputError(ln);
-            }
-            else {
-                ctx.position.get(ln, '^').live();
-            }
+            ctx.position.get(rangeResult[1], '^').live();
             return;
         }
         let matched = findCommand(rangeCommands, text);
         if (matched) {
-            let first = resolveRangeLine(ctx, range.range[0]);
-            if (typeof first === 'string') {
-                ctx.vimState.outputError(first);
-                return;
-            }
-            let last = resolveRangeLine(ctx, range.range[1]);
-            if (typeof last === 'string') {
-                ctx.vimState.outputError(last);
-                return;
-            }
+            let first = rangeResult[0];
+            let last = rangeResult[1];
             if (first > last) {
                 let tmp = first;
                 first = last;
@@ -261,16 +252,41 @@ type RangeLineUnion = {
     name: string;
 }
 
-type RangeLine = RangeLineUnion & { offset?: number }
+type RangeLine = RangeLineUnion & { offset?: number; updateCursorLine?: true; }
 
-function resolveRangeLine(ctx: ICommandContext, val: RangeLine): number | string {
+function resolveRange(ctx: ICommandContext, value: RangeLine[]): [number, number] | string {
+    let cursorLine = ctx.position.get().lineNumber;
+    let resultLineNumbers: number[] = [];
+    for (const rangeLine of value) {
+        let r = resolveRangeLine(ctx, rangeLine, cursorLine);
+        if (typeof r === 'string') {
+            return r;
+        }
+        resultLineNumbers.push(r);
+        if (rangeLine.updateCursorLine) {
+            cursorLine = r;
+        }
+    }
+    let len = resultLineNumbers.length;
+    if (len > 1) {
+        return [resultLineNumbers[len - 2], resultLineNumbers[len - 1]];
+    }
+    else if (len === 1) {
+        return [resultLineNumbers[0], resultLineNumbers[0]];
+    }
+    else {
+        throw new Error();
+    }
+}
+
+function resolveRangeLine(ctx: ICommandContext, val: RangeLine, cursorLine: number): number | string {
     let lineCount = ctx.model.getLineCount();
     let ln: number;
     if (val.kind === 'number') {
         ln = val.value;
     }
     else if (val.kind === 'cursor') {
-        ln = ctx.editor.getPosition()!.lineNumber;
+        ln = cursorLine;
     }
     else if (val.kind === 'last') {
         ln = lineCount;
@@ -303,11 +319,15 @@ class RangeParser {
         this.len = input.length;
     }
 
-    match(): {range: [RangeLine, RangeLine], next: number} | null {
+    match(): {range: RangeLine[], next: number} | null {
         // let value: RangeValue | null = null;
         const range: RangeLine[] = [];
+        let separator: string | null;
         if (this.matchOne(range)) {
-            while (this.tryMatchString(',')) {
+            while (separator = this.tryMatchCharSet(',;')) {
+                if (separator === ';') {
+                    range[range.length - 1].updateCursorLine = true;
+                }
                 this.skipWhiteSpace();
                 if (!this.matchOne(range)) {
                     break;
@@ -318,11 +338,8 @@ class RangeParser {
         if (size === 0) {
             return null;
         }
-        else if (size === 1) {
-            return {range: [range[0], range[0]], next: this.pos};
-        }
         else {
-            return { range: [range[size - 2], range[size - 1]], next: this.pos };
+            return { range, next: this.pos };
         }
     }
 
@@ -339,6 +356,13 @@ class RangeParser {
         else if (s = this.tryMatchCharSet('.$')) {
             let kind: any = s === '.' ? 'cursor' : 'last';
             const line: RangeLine = { kind };
+            this.matchOffset(line);
+            range.push(line);
+            this.skipWhiteSpace();
+            return true;
+        }
+        else if (this.peekSet('+-')) {
+            const line: RangeLine = { kind: 'cursor' };
             this.matchOffset(line);
             range.push(line);
             this.skipWhiteSpace();
@@ -384,6 +408,11 @@ class RangeParser {
         if (offset !== 0 && line) {
             line.offset = offset;
         }
+    }
+
+    peekSet(set: string): boolean {
+        let ch = this.input.charAt(this.pos);
+        return set.indexOf(ch) >= 0;
     }
 
     skipWhiteSpace() {
