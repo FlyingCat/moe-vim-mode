@@ -1,5 +1,4 @@
 const path = require('path');
-const CopyWebpackPlugin = require('copy-webpack-plugin')
 
 module.exports = {
     mode: 'production',
@@ -7,7 +6,7 @@ module.exports = {
     output: {
         filename: 'moe-vim-mode.js',
         path: path.resolve(__dirname, 'dist'),
-        library: 'moeVimMode',
+        library: 'moeVim',
         libraryTarget: 'umd',
     },
     module: {

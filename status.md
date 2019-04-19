@@ -4,11 +4,16 @@
 
 ★  differ from Vim
 
-__not supported__
+__Not supported__
 
 - Visual Block mode
 - Replace Mode
 - Macros
+
+__Work in progess__
+
+- Key mappings
+- Ex commands
 
 ## Monaco Editor actions
 
@@ -154,6 +159,7 @@ __not supported__
 |   ✓   |   g#   |   Like "#", but also find matches that are not a whole word   |
 |   ✓   |   gn   |   Search forward for the last used search pattern and start Visual mode to select the match   |
 |   ✓   |   gN   |   Like gn but searches backward   |
+|   ✓   |   :noh[lsearch]   |   Stop the highlighting for the 'hlsearch' option   |
 
 
 ## scrolling
@@ -286,6 +292,17 @@ __not supported__
 |       |   \["x][p   |   Like "p", but adjust the indent to the current line   |
 
 
+## registers
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   ""   |   unnamed register  |
+|   ✓   |   "0 to "9   |   numbered registers   |
+|   ✓   |   "-   |   small delete register   |
+|   ✓   |   "a to "z, "A to "Z   |   named registers   |
+|   ✓   |   "_   |   black hold registers   |
+
+
 ## inserting
 
 |   Status   |   Keys   |   Description   |
@@ -315,3 +332,31 @@ __not supported__
 |   ✓ ★   |   u   |   Undo [count] changes. Note: base on native undo-redo, may not work as expected   |
 |   ✓ ★   |   CTRL-R   |   Redo [count] changes which were undone. Note: As above   |
 |   !   |   .   |   Repeat last change, with count replaced with [count]  |
+
+## set-option
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   :se[t] {option}?   |   Show value of {option}   |
+|   ✓   |   :se[t] {option}   |   Toggle option: set, switch it on; Number or string option: show value   |
+|   ✓   |   :se[t] {option}! or :se[t] inv{option}   |   Toggle option: Invert value  |
+
+## supported options
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   ignorecase ic   |   Ignore case in search patterns   |
+|   ✓   |   smartcase scs   |   Override the 'ignorecase' option if the search pattern contains upper case characters   |
+|   ✓   |   hlsearch hls   |   When there is a previous search pattern, highlight all its matches  |
+|   ✓   |   incsearch is   |   While typing a search command, show where the pattern, as it was typed so far, matches  |
+
+## cmdline-ranges
+
+|   Status   |   Keys   |   Description   |
+|   -   |   -   |   -   |
+|   ✓   |   {number}   |   an absolute line number   |
+|   ✓   |   .   |   the current line   |
+|   ✓   |   $   |   the last line in the file  |
+|   ✓   |   %   |   equal to 1,$ (the entire file)  |
+|   ✓   |   't   |   position of mark t  |
+|   ✓   |   *   |   equal to '<,'> (visual area)  |

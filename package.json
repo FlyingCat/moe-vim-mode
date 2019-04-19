@@ -1,14 +1,22 @@
 {
     "name": "moe-vim-mode",
-    "version": "1.0.0",
+    "version": "0.0.1",
     "description": "Vim mode for the Monaco Editor",
     "main": "dist/moe-vim-mode.js",
+    "files": [
+        "dist",
+        "index.d.ts"
+    ],
+    "unpkg": "dist/moe-vim-mode.js",
     "scripts": {
         "start": "webpack-dev-server --config webpack.demo.config.js",
         "build": "webpack --config webpack.build.config.js",
         "test": "karma start"
     },
-    "author": "",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/FlyingCat/moe-vim-mode.git"
+    },
     "license": "MIT",
     "devDependencies": {
         "@types/chai": "^4.1.7",
