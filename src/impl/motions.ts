@@ -1,16 +1,38 @@
-import { IMotion, MotionFunction, ICommandContext } from "../boot/base";
+import { IMotion, MotionFunction, ICommandContext, MotionSource } from "../boot/base";
 import { CursorKind } from "../text/position";
 import { TextBound } from "../text/bound";
 import { registerMotion, registerTextObject } from "../boot/registry";
 import { TextBracket } from "../text/bracket";
 import * as monaco from "monaco-editor";
+import { configuration } from "../configuration";
 
-export const spMotion: {[k in 'left' | 'right' | 'EOL' | 'word' | 'fullWord' | 'altWord' | 'altFullWord']: IMotion} = {
-    left: { run(ctx, pos, count) {
-        return pos.column === 1 ? null : ctx.position.get(pos.lineNumber, pos.column - count);
-    }},
-    right: { run(ctx, positin, count, source) {
-        let pos = ctx.position.get(positin).shouldWrap(false);
+function left(ctx: ICommandContext, from: monaco.IPosition, count: number, source: MotionSource, ww: string): monaco.IPosition | null {
+    if (configuration.whichWrap.indexOf(ww) < 0) {
+        return from.column === 1 ? null : ctx.position.get(from.lineNumber, from.column - count);
+    }
+    else {
+        if (from.lineNumber === 1 && from.column === 1) {
+            return null;
+        }
+        let pos = ctx.position.get(from);
+        while (count > 0) {
+            if (pos.backward()) {
+                if (source === 'Move') {
+                    pos.soft();
+                }
+                count--;
+            }
+            else {
+                break;
+            }
+        }
+        return pos;
+    }
+}
+
+function right(ctx: ICommandContext, from: monaco.IPosition, count: number, source: MotionSource, ww: string): monaco.IPosition | null {
+    let pos = ctx.position.get(from);
+    if (configuration.whichWrap.indexOf(ww) < 0) {
         if (source === 'Move') {
             if (pos.isLineLastChar) {
                 return null;
@@ -22,6 +44,32 @@ export const spMotion: {[k in 'left' | 'right' | 'EOL' | 'word' | 'fullWord' | '
             }
         }
         return ctx.position.get(pos.lineNumber, pos.column + count);
+    }
+    else {
+        if (pos.isEOF || (source === 'Move' && pos.isFileLastChar)) {
+            return null;
+        }
+        while (count > 0) {
+            if (pos.forward()) {
+                if (source === 'Move' && pos.kind === CursorKind.EOL) {
+                    pos.forward();
+                }
+                count--;
+            }
+            else {
+                break;
+            }
+        }
+        return pos;
+    }
+}
+
+export const spMotion: {[k in 'left' | 'right' | 'EOL' | 'word' | 'fullWord' | 'altWord' | 'altFullWord']: IMotion} = {
+    left: { run(ctx, pos, count, source) {
+        return left(ctx, pos, count, source, 'h')
+    }},
+    right: { run(ctx, pos, count, source) {
+        return right(ctx, pos, count, source, 'l');
     }},
     EOL: { inclusive: true, desiredColumnAtEol: true, run(ctx, pos, count, source) {
         // vim doc: In Visual mode the cursor goes to just after the last character in the line.
@@ -44,8 +92,14 @@ export const spMotion: {[k in 'left' | 'right' | 'EOL' | 'word' | 'fullWord' | '
 }
 
 //#region left-right
-registerMotion('h, <Left>, <BS>', spMotion.left);
-registerMotion('l, <Right>, <Space>', spMotion.right);
+registerMotion('h', spMotion.left);
+registerMotion('<Left>', (ctx, pos, count, source) => left(ctx, pos, count, source, '<'));
+registerMotion('<BS>', (ctx, pos, count, source) => left(ctx, pos, count, source, 'b'));
+
+registerMotion('l', spMotion.right);
+registerMotion('<Right>', (ctx, pos, count, source) => right(ctx, pos, count, source, '>'));
+registerMotion('<Space>', (ctx, pos, count, source) => right(ctx, pos, count, source, 's'));
+
 let firstChar: MotionFunction = (ctx, pos, count) => {
     return {lineNumber: pos.lineNumber, column: 1};
 };

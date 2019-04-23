@@ -9,6 +9,7 @@ import * as monaco from "monaco-editor";
 import { addExRangeCommand } from "../exCommand";
 import { addHistoryPatch } from "./sp/history";
 import { registerCommand } from "../boot/registry";
+import { configuration } from "../configuration";
 
 type LineRange = {
     first: number;
@@ -448,7 +449,7 @@ abstract class TextTransform implements Operator {
     runWithCharRange(ctx: ICommandContext, ranges: monaco.IRange[], source: RangeSource) {
         let edits: monaco.editor.IIdentifiedSingleEditOperation[] = ranges.filter(x => !monaco.Range.isEmpty(x)).map(x => ({ range: monaco.Range.lift(x), text: this.transform(ctx.model.getValueInRange(x)) }));
         if (edits.length) {
-            let endCursors = ranges.map(x => (source === RangeSource.ByCount ? ctx.position.get(x.endLineNumber, x.endColumn) : ctx.position.get(x.startLineNumber, x.startColumn)).soft().toSelection());
+            let endCursors = ranges.map(x => ctx.position.get(x.startLineNumber, x.startColumn).soft().toSelection());
             pushEdits(ctx, edits, () => endCursors);
         }
     }
@@ -484,6 +485,38 @@ class UpperCase extends TextTransform {
 register(new UpperCase(), { nkey: 'gU', nline: 'gU, U', vkey: 'gU, U' });
 
 class ToggleCase extends TextTransform {
+    runWithCursor(ctx: ICommandContext, posiitons: monaco.IPosition[], args: ICommandArgs) {
+        let count = args.count || 1;
+        let noWrap = configuration.whichWrap.indexOf('~') < 0;
+        let ranges = posiitons.map(x => {
+            let pos = ctx.position.get(x);
+            if (noWrap) {
+                pos.shouldWrap(false).move(count);
+            }
+            else {
+                let n = count;
+                while (n > 0) {
+                    if (pos.forward()) {
+                        if (pos.kind === CursorKind.EOL) {
+                            pos.forward();
+                        }
+                        n--;
+                    }
+                    else {
+                        break;
+                    }
+                }
+            }
+            return monaco.Range.fromPositions(x, pos);
+        });
+        ranges = helper.mergeRanges(ranges);
+        let edits: monaco.editor.IIdentifiedSingleEditOperation[] = ranges.filter(x => !monaco.Range.isEmpty(x)).map(range => ({ range, text: this.transform(ctx.model.getValueInRange(range)) }));
+        if (edits.length) {
+            let endCursors = ranges.map(x => ctx.position.get(x.endLineNumber, x.endColumn).soft().toSelection());
+            pushEdits(ctx, edits, () => endCursors);
+        }
+    }
+
     transform(s: string) {
         let text = '';
         let oriText = s;
@@ -499,7 +532,7 @@ class ToggleCase extends TextTransform {
     }
 }
 
-register(new ToggleCase(), { ncmdCountChar: '~', nkey: 'g~', nline: 'g~, ~', vkey: 'g~, ~' });
+register(new ToggleCase(), { ncmdCursor: '~', nkey: 'g~', nline: 'g~, ~', vkey: 'g~, ~' });
 
 class Indent implements Operator {
     constructor(readonly action: string) {

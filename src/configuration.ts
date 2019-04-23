@@ -192,6 +192,8 @@ class Configuration implements IConfiguration {
         }
     }
 
+    whichWrap = 'b,s';
+
     readonly nmap = new Mapper();
     readonly vmap = new Mapper();
 }

@@ -349,6 +349,8 @@ __Work in progess__
 |   ✓   |   smartcase scs   |   Override the 'ignorecase' option if the search pattern contains upper case characters   |
 |   ✓   |   hlsearch hls   |   When there is a previous search pattern, highlight all its matches  |
 |   ✓   |   incsearch is   |   While typing a search command, show where the pattern, as it was typed so far, matches  |
+|   ✓   |   whichwrap ww   |   Allow specified keys that move the cursor left/right to move to the
+	previous/next line  |
 
 ## cmdline-ranges
 

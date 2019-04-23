@@ -40,6 +40,50 @@ FROM({
 .RUN();
 
 FROM({
+    suit: 'left-right <BS> with wraps',
+    text: ['12345', '', 'abc'],
+    cursor: [3, 2]
+})
+.TEST('move')
+    .next({ input: '2<BS>', cursor: [2, 1] })
+    .next({ input: '<BS>', cursor: [1, 5] })
+    .restore()
+    .next({ input: '3<BS>', cursor: [1, 5] })
+.TEST('select')
+    .next({ input: 'v2<BS>', selection: [3, 2, 2, 1] })
+    .next({ input: '<BS>', selection: [3, 2, 1, 6] })
+    .restore()
+    .next({ input: 'v3<BS>', selection: [3, 2, 1, 6] })
+.TEST('operator')
+    .next({ input: 'd2<BS>', text: ['12345', 'bc'], cursor: [2, 1] })
+    .next({ input: 'd<BS>', text: ['12345bc'], cursor: [1, 6] })
+    .restore()
+    .next({ input: 'd3<BS>', text: ['12345bc'], cursor: [1, 6] })
+.RUN();
+
+FROM({
+    suit: 'left-right <Space> with wraps',
+    text: ['abc', '', '12345'],
+    cursor: [1, 3]
+})
+.TEST('move')
+    .next({ input: '<Space>', cursor: [2, 1] })
+    .next({ input: '2<Space>', cursor: [3, 2] })
+    .restore()
+    .next({ input: '3<Space>', cursor: [3, 2] })
+.TEST('select')
+    .next({ input: 'v2<Space>', selection: [1, 3, 2, 1] })
+    .next({ input: '2<Space>', selection: [1, 3, 3, 2] })
+    .restore()
+    .next({ input: 'v4<Space>', selection: [1, 3, 3, 2] })
+.TEST('operator')
+    .next({ input: 'd4<Space>', text: ['ab2345'], cursor: [1, 3] })
+    // TODO: Vim atually has different behavior while handling eol
+    // try d1, d2, d3
+    // also try d3 with text ['+', '+', '']
+.RUN();
+
+FROM({
     suit: 'left-right char motions',
     text: '(234)(789)(234)(789)',
 })

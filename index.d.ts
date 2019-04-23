@@ -73,6 +73,10 @@ export interface IConfiguration {
      */
     highlightSearch: boolean;
     /**
+     * corresponding vim option. default: "b,s"
+     */
+    whichWrap: string;
+    /**
      * nmap manager
      */
     readonly nmap: IMapper;

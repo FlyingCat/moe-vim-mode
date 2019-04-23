@@ -39,6 +39,11 @@ const options: Option[] = [
         names: ['incsearch', 'is'],
         getValue: () => configuration.incrementalSearch,
         setValue: v => configuration.incrementalSearch = v,
+    }, {
+        type: 'string',
+        names: ['whichwrap', 'ww'],
+        getValue: () => configuration.whichWrap,
+        setValue: v => configuration.whichWrap = v,
     }
 ];
 

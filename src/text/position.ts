@@ -161,7 +161,7 @@ export class TextPosition {
         return this._line === 1 && this._index === 0;
     }
 
-    get isLastChar() {
+    get isFileLastChar() {
         return this._line === this._lineCount && this._index + 1 >= this._lineLength;
     }
 

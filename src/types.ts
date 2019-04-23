@@ -45,6 +45,7 @@ export interface IConfiguration {
     smartCase: boolean;
     incrementalSearch: boolean;
     highlightSearch: boolean;
+    whichWrap: string;
     nmap: IMapper;
     vmap: IMapper;
 }
